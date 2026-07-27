@@ -651,20 +651,29 @@ def top_tracks_by_decade_wide(df, n=10, metric='plays', min_decade=1960):
     return _decade_wide(long, 'cell', min_decade)
 
 
-def artist_concert_warmups(df, spike_days=14, cooldown_days=14):
+def artist_concert_warmups(df, spike_days=14, cooldown_days=2,
+                           min_spike_hours=2.0, elevation_ratio=3.0):
     """Bands with a "charge up, then crash" listening shape: a concentrated
     burst over a `spike_days`-day window, followed by a sharp drop in the
     `cooldown_days` days right after — the pattern of hyping up for a show,
     then coming back down from it (as opposed to track/artist "binges",
     which just rank the single most concentrated window regardless of what
-    follows it).
+    follows it). `cooldown_days` defaults to 2, not spike_days, since the
+    crash is usually a same-day/next-day thing, not a slow fade.
 
     For each artist, finds the spike_days-day sliding window (same
     cumsum/searchsorted approach as _sliding_window_peaks) with the most
-    listening, then compares its daily rate to the daily rate over the
-    following cooldown_days. Artists whose most recent play is within
-    cooldown_days of their spike (no runway to measure a "return to normal")
-    are dropped — can't tell a crash from "still going".
+    listening. Two gates keep this from just returning "biggest window
+    ever" for whichever artist you play the most in general:
+      - `min_spike_hours`: the window must clear this many total hours.
+      - `elevation_ratio`: the window's daily rate must be at least this
+        many times the artist's *own* baseline daily rate (their total
+        listening outside that window, divided by the days outside it) —
+        an artist you always play a lot would otherwise trivially have a
+        "biggest window ever" that isn't actually elevated for them.
+    Artists whose most recent play is within cooldown_days of their spike
+    (no runway to measure a "return to normal") are dropped — can't tell a
+    crash from "still going".
 
     One row per qualifying artist: spike_hours, spike_start, spike_end,
     cooldown_hours, drop_pct (share of the spike's daily rate lost right
@@ -685,11 +694,19 @@ def artist_concert_warmups(df, spike_days=14, cooldown_days=14):
         i = int(np.argmax(window_sum))
         spike_start, spike_end = ts[left_idx[i]], ts[i]
         spike_hours = window_sum[i] / 60.0
-        if spike_hours <= 0 or latest_overall - spike_end < cooldown:
+        if spike_hours < min_spike_hours or latest_overall - spike_end < cooldown:
             continue
+
+        span_days = (ts[-1] - ts[0]) / np.timedelta64(1, 'D')
+        baseline_days = max(span_days - spike_days, 1.0)
+        baseline_hours = max(minutes.sum() / 60.0 - spike_hours, 0.0)
+        baseline_daily = baseline_hours / baseline_days
+        spike_daily = spike_hours / spike_days
+        if baseline_daily > 0 and spike_daily < baseline_daily * elevation_ratio:
+            continue  # not actually elevated vs. how much you normally play them
+
         cool_mask = (ts > spike_end) & (ts <= spike_end + cooldown)
         cooldown_hours = minutes[cool_mask].sum() / 60.0
-        spike_daily = spike_hours / spike_days
         cooldown_daily = cooldown_hours / cooldown_days
         drop_pct = max(0.0, 1 - cooldown_daily / spike_daily)
         rows.append((artist, spike_hours, spike_start, spike_end,

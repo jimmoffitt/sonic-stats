@@ -78,12 +78,18 @@ def artist_binges_cached(path, mtime, excl_mtime, apply_excl):
 
 
 @st.cache_data
-def concert_warmups_cached(path, mtime, excl_mtime, apply_excl):
+def concert_warmups_cached(path, mtime, excl_mtime, apply_excl, spike_days,
+                            cooldown_days, min_spike_hours, elevation_ratio):
     """Cached the same way as the other Binges tables. Full archive (not
-    date-range-filtered), same rationale as track/artist_binges_cached."""
+    date-range-filtered), same rationale as track/artist_binges_cached. The
+    tuning knobs are part of the cache key, so each combination the user
+    drags the sliders to gets its own cached result rather than colliding."""
     df = (filtered_plays_cached(path, mtime, excl_mtime) if apply_excl
           else load_plays_cached(path, mtime))
-    return proc.artist_concert_warmups(df)
+    return proc.artist_concert_warmups(df, spike_days=spike_days,
+                                       cooldown_days=cooldown_days,
+                                       min_spike_hours=min_spike_hours,
+                                       elevation_ratio=elevation_ratio)
 
 
 def metric_columns(metric):
@@ -430,10 +436,13 @@ def main():
         artist_peaks = artist_binges_cached(config.PLAYS_FILE,
                                             os.path.getmtime(config.PLAYS_FILE),
                                             ctx['excl_mtime'], ctx['apply_excl'])
-        warmups = concert_warmups_cached(config.PLAYS_FILE,
-                                         os.path.getmtime(config.PLAYS_FILE),
-                                         ctx['excl_mtime'], ctx['apply_excl'])
-        render_binges(track_peaks, artist_peaks, warmups)
+        # Warmups depend on tunable sliders drawn inside render_concert_warmups
+        # itself, so it's a loader closure rather than a precomputed table —
+        # each slider combo still hits concert_warmups_cached's own cache.
+        warmup_loader = lambda **kw: concert_warmups_cached(
+            config.PLAYS_FILE, os.path.getmtime(config.PLAYS_FILE),
+            ctx['excl_mtime'], ctx['apply_excl'], **kw)
+        render_binges(track_peaks, artist_peaks, warmup_loader)
     def _artist_filters(): render_artist_filters(df_all)
     def _explore():  render_explore(ctx['df'])
     def _export():   render_export(ctx['df'])
@@ -841,7 +850,7 @@ def render_patterns(df):
     st.markdown("\n".join(lines))
 
 
-def render_binges(track_peaks, artist_peaks, warmups):
+def render_binges(track_peaks, artist_peaks, warmup_loader):
     """Songs/bands that hit hard for a week (or two), then faded — ranked by
     binge_score = peak hours in any 7-day window, weighted by how much of
     that track/artist's *entire* history with you happened in that one
@@ -887,28 +896,55 @@ def render_binges(track_peaks, artist_peaks, warmups):
     }), width='stretch', hide_index=True)
 
     st.divider()
-    render_concert_warmups(warmups)
+    render_concert_warmups(warmup_loader)
 
 
-def render_concert_warmups(warmups):
-    """Bands with a 'charge up, then crash' shape: a burst of listening over
-    a couple of weeks, then a sharp, temporary drop right after — often the
-    sound of hyping up for a show and coming down from it. Distinct from the
-    Binges table above (which just ranks the single most concentrated
-    window) because it specifically requires the drop-off afterward."""
+def render_concert_warmups(warmup_loader):
+    """Bands with a 'charge up, then crash' shape: a burst of listening,
+    then a sharp, temporary drop right after — often the sound of hyping up
+    for a show and coming down from it. Distinct from the Binges table above
+    (which just ranks the single most concentrated window) because it
+    specifically requires the drop-off afterward. All four knobs below feed
+    proc.artist_concert_warmups() directly (via warmup_loader, a closure
+    over the cached loader from main()), so every combination is exact, not
+    a client-side filter of one fixed computation."""
     st.subheader("🎫 Concert warm-up")
-    st.caption("Bands that surged for a couple of weeks, then dropped off "
-               "sharply right after — ranked by spike hours × how steep the "
-               "drop was. A guess: this often lines up with a show.")
+    st.caption("Bands that surged, then dropped off sharply right after — "
+               "ranked by spike hours × how steep the drop was. A guess: "
+               "this often lines up with a show. Tune the pattern below if "
+               "it's not matching what you remember.")
+    c1, c2 = st.columns(2)
+    spike_days = c1.slider("Build-up window (days)", 3, 30, 14,
+                           key="warmup_spike_days",
+                           help="How many days of build-up counts as one "
+                                "'show cycle' — the window the spike is "
+                                "measured over.")
+    min_spike_hours = c2.slider("Minimum hours of listening in that window",
+                                0.0, 20.0, 2.0, step=0.5, key="warmup_min_hours",
+                                help="Ignore spikes below this many hours "
+                                     "total — filters out one-off blips.")
+    c3, c4 = st.columns(2)
+    elevation_ratio = c3.slider("Elevated rotation (× your normal rate)",
+                                1.0, 10.0, 3.0, step=0.5, key="warmup_elevation",
+                                help="How far above that artist's normal "
+                                     "daily rate the spike must be to count "
+                                     "as genuinely 'elevated' — without this, "
+                                     "an artist you always play a lot would "
+                                     "trivially have a 'biggest window ever'.")
+    cooldown_days = c4.slider("Drop-off window after the spike (days)",
+                              1, 14, 2, key="warmup_cooldown_days",
+                              help="How soon after the spike to check for "
+                                   "the crash — set to 1 for a same-day/"
+                                   "next-day drop-off.")
+
+    warmups = warmup_loader(spike_days=spike_days, cooldown_days=cooldown_days,
+                            min_spike_hours=min_spike_hours,
+                            elevation_ratio=elevation_ratio)
     if warmups.empty:
-        st.info("Not enough data to find this pattern yet.")
+        st.info("Not enough data to find this pattern yet — try loosening "
+                "the knobs above.")
         return
-    hide_small = st.checkbox("Hide small spikes (< 1 hour)", value=True,
-                             key="warmup_floor")
-    shown = warmups[warmups['spike_hours'] >= (1.0 if hide_small else 0.0)].head(10)
-    if shown.empty:
-        st.info("Not enough data to find this pattern yet.")
-        return
+    shown = warmups.head(10)
     table = shown.assign(
         window=[f"{pd.Timestamp(s).date()} → {pd.Timestamp(e).date()}"
                 for s, e in zip(shown['spike_start'], shown['spike_end'])],
@@ -918,8 +954,9 @@ def render_concert_warmups(warmups):
     )
     st.dataframe(table[['artist_name', 'spike_hours', 'window', 'cooldown_hours',
                         'drop_pct']].rename(columns={
-        'artist_name': 'Band', 'spike_hours': 'Spike hours (2 wks)',
-        'window': 'Spike window', 'cooldown_hours': 'Hours after (next 2 wks)',
+        'artist_name': 'Band', 'spike_hours': f'Spike hours ({spike_days}d)',
+        'window': 'Spike window',
+        'cooldown_hours': f'Hours after (next {cooldown_days}d)',
         'drop_pct': 'Drop %',
     }), width='stretch', hide_index=True)
 
