@@ -27,7 +27,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 import run_pipeline
-from src import charts, config, process_data as proc
+from src import charts, config, process_data as proc, story
 
 st.set_page_config(page_title="sonic-stats", page_icon="🎵", layout="wide",
                    initial_sidebar_state="expanded")
@@ -84,6 +84,13 @@ def concert_warmups_cached(path, mtime, excl_mtime, apply_excl):
     df = (filtered_plays_cached(path, mtime, excl_mtime) if apply_excl
           else load_plays_cached(path, mtime))
     return proc.artist_concert_warmups(df)
+
+
+@st.cache_data
+def wrapped_story_data_cached(path, mtime, excl_mtime, apply_excl, year):
+    df = (filtered_plays_cached(path, mtime, excl_mtime) if apply_excl
+          else load_plays_cached(path, mtime))
+    return proc.wrapped_story_data(df, year)
 
 
 def metric_columns(metric):
@@ -421,6 +428,11 @@ def main():
                                        os.path.getmtime(config.PLAYS_FILE),
                                        ctx['excl_mtime'], ctx['apply_excl'])
         render_wrapped(ctx['df'], alltime)
+    def _story():
+        story_loader = lambda year: wrapped_story_data_cached(
+            config.PLAYS_FILE, os.path.getmtime(config.PLAYS_FILE),
+            ctx['excl_mtime'], ctx['apply_excl'], year)
+        render_wrapped_story(ctx['df'], story_loader)
     def _patterns(): render_patterns(ctx['df'])
     def _bands():    render_bands(ctx['df'])
     def _binges():
@@ -441,6 +453,7 @@ def main():
 
     analytics = [
         st.Page(_wrapped,  title="Wrapped",  icon="🗓️", url_path="wrapped", default=True),
+        st.Page(_story,    title="Wrapped Story", icon="✨", url_path="story"),
         st.Page(_artists,  title="Artists",  icon="🎸", url_path="artists"),
         st.Page(_tracks,   title="Tracks",   icon="🎵", url_path="tracks"),
         st.Page(_albums,   title="Albums",   icon="💿", url_path="albums"),
@@ -809,6 +822,32 @@ def render_wrapped(df, alltime):
     c1.metric("Top artist", top_artist.iloc[0]['artist_name'] if len(top_artist) else "—")
     c2.metric("Top track", top_track.iloc[0]['track_name'] if len(top_track) else "—")
     c3.metric("Top genre", top_genre.iloc[0]['genres'] if len(top_genre) else "—")
+
+
+def render_wrapped_story(df, story_loader):
+    """A swipeable 'story' carousel (src/story.py) of stylized stat cards for
+    one year — the shareable, visual counterpart to the plain Wrapped tab.
+    story_loader(year) is a closure over wrapped_story_data_cached from
+    main(), so each year picked gets its own cache entry."""
+    st.subheader("✨ Wrapped Story")
+    st.caption("A shareable set of story-style slides for one year — use "
+               "the arrow keys, tap the sides, or swipe.")
+    years = sorted((int(y) for y in df['year'].dropna().unique()), reverse=True)
+    if not years:
+        st.info("No data yet.")
+        return
+    year = st.selectbox("Year", years, key="story_year")
+    data = story_loader(year)
+    if data is None:
+        st.info("No plays in that year.")
+        return
+    html = story.render_story_html(data)
+    components.html(html, height=760, scrolling=False)
+    st.download_button(
+        "⬇️ Download as HTML", data=html,
+        file_name=f"wrapped_story_{year}.html", mime="text/html",
+        help="A single self-contained file — data baked in, works offline, "
+             "shareable outside the app.")
 
 
 def render_patterns(df):

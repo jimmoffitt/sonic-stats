@@ -857,3 +857,73 @@ def alltime_stats(df):
         'top_album': (f"{alb['album_name']} — {alb['artist_name']}", int(alb['plays'])) if alb is not None else None,
         'top_genre': (gen['genres'], int(gen['plays'])) if gen is not None else None,
     }
+
+
+def _consecutive_day_streak_range(dates):
+    """Like _consecutive_day_streak, but also returns the (start, end) dates
+    of the longest run — needed for the Wrapped Story streak slide, which
+    shows the actual date range alongside the day count."""
+    days = sorted(set(dates))
+    if not days:
+        return 0, None, None
+    longest = run = 1
+    best_start = best_end = run_start = days[0]
+    for prev, cur in zip(days, days[1:]):
+        if (cur - prev).days == 1:
+            run += 1
+        else:
+            run, run_start = 1, cur
+        if run > longest:
+            longest, best_start, best_end = run, run_start, cur
+    return longest, best_start, best_end
+
+
+_MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+
+def monthly_breakdown(df, year):
+    """Per-calendar-month days-active/hours/plays for one year, always 12
+    rows (Jan-Dec, zero-filled) so the Wrapped Story's monthly bar/line
+    slides don't have to special-case missing months."""
+    sub = df[df['year'] == year]
+    month = sub['ts_local'].dt.month
+    by_days = sub.assign(_d=sub['ts_local'].dt.date).groupby(month)['_d'].nunique()
+    by_hours = sub.groupby(month)['minutes_played'].sum() / 60
+    by_plays = sub.groupby(month).size()
+    return pd.DataFrame({
+        'month': range(1, 13),
+        'label': _MONTH_LABELS,
+        'days_active': [int(by_days.get(m, 0)) for m in range(1, 13)],
+        'hours': [round(float(by_hours.get(m, 0.0)), 1) for m in range(1, 13)],
+        'plays': [int(by_plays.get(m, 0)) for m in range(1, 13)],
+    })
+
+
+def wrapped_story_data(df, year, top_n=5):
+    """Assembles everything the Wrapped Story carousel needs for one year
+    into a single JSON-safe dict: totals, the monthly days/hours series,
+    the longest listening streak (with its date range), and a top-artists
+    leaderboard. Returns None if there's no data for that year."""
+    sub = df[df['year'] == year]
+    if sub.empty:
+        return None
+    dates = sub['ts_local'].dt.date
+    streak_days, streak_start, streak_end = _consecutive_day_streak_range(dates)
+    top = top_artists(sub, n=top_n)
+    return {
+        'year': int(year),
+        'total_plays': int(len(sub)),
+        'total_hours': round(sub['minutes_played'].sum() / 60),
+        'listening_days': int(dates.nunique()),
+        'unique_artists': int(sub['artist_name'].nunique()),
+        'longest_streak': int(streak_days),
+        'streak_start': str(streak_start) if streak_start else None,
+        'streak_end': str(streak_end) if streak_end else None,
+        'monthly': monthly_breakdown(sub, year).to_dict('records'),
+        'top_artists': [
+            {'rank': int(r['rank']), 'artist_name': r['artist_name'],
+             'plays': int(r['plays']), 'hours': round(r['minutes'] / 60, 1)}
+            for r in top.assign(rank=range(1, len(top) + 1)).to_dict('records')
+        ],
+    }
