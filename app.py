@@ -1027,8 +1027,22 @@ def render_concert_warmups(warmup_loader):
                                    "the crash — set to 1 for a same-day/"
                                    "next-day drop-off.")
 
+    c5, c6 = st.columns(2)
+    top_n = c5.slider("Show top N", 5, 50, saved['top_n'], step=5, key="warmup_top_n",
+                      help="How many ranked candidates to display.")
+    rank_by_concert_night = c6.checkbox(
+        "🌙 Rank by drive-home pattern first", value=saved['rank_by_concert_night'],
+        key="warmup_rank_by_night",
+        help="Bands with a late-night (10pm-1am) listening cluster during "
+             "their spike window — the classic drove-home-from-a-show "
+             "pattern, optionally backed up by a same-day 3-6pm pre-show "
+             "session — are ranked above those without one, before falling "
+             "back to spike hours × drop-off within each group. Doesn't "
+             "remove anyone from the list, just reorders it.")
+
     current = {'spike_days': spike_days, 'min_spike_hours': min_spike_hours,
-               'elevation_ratio': elevation_ratio, 'cooldown_days': cooldown_days}
+               'elevation_ratio': elevation_ratio, 'cooldown_days': cooldown_days,
+               'top_n': top_n, 'rank_by_concert_night': rank_by_concert_night}
     if current != saved:
         settings = proc.load_settings()
         settings['concert_warmup'] = current
@@ -1041,12 +1055,15 @@ def render_concert_warmups(warmup_loader):
         st.info("Not enough data to find this pattern yet — try loosening "
                 "the knobs above.")
         return
+    if rank_by_concert_night:
+        warmups = warmups.sort_values(['has_concert_night', 'warmup_score'],
+                                      ascending=[False, False]).reset_index(drop=True)
 
     false_positives = set(proc.load_warmup_false_positives())
     legit = warmups[~warmups['artist_name'].isin(false_positives)]
     flagged = warmups[warmups['artist_name'].isin(false_positives)]
 
-    shown = legit.head(10)
+    shown = legit.head(top_n)
     if shown.empty:
         st.info("Not enough data to find this pattern yet — try loosening "
                 "the knobs above, or you've flagged everything below.")
@@ -1095,13 +1112,17 @@ def _warmup_table(rows, spike_days, cooldown_days):
         spike_hours=rows['spike_hours'].round(1),
         cooldown_hours=rows['cooldown_hours'].round(1),
         drop_pct=(rows['drop_pct'] * 100).round(0).astype(int),
+        late_night=rows['late_night_minutes'].round(0).astype(int),
+        afternoon=rows['afternoon_minutes'].round(0).astype(int),
     )
     return table[['artist_name', 'spike_hours', 'window', 'cooldown_hours',
-                 'drop_pct']].rename(columns={
+                 'drop_pct', 'late_night', 'afternoon']].rename(columns={
         'artist_name': 'Band', 'spike_hours': f'Spike hours ({spike_days}d)',
         'window': 'Spike window',
         'cooldown_hours': f'Hours after (next {cooldown_days}d)',
         'drop_pct': 'Drop %',
+        'late_night': '🌙 Late night (min)',
+        'afternoon': '☀️ Afternoon (min)',
     }).reset_index(drop=True)
 
 

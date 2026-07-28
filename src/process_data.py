@@ -689,6 +689,35 @@ def top_tracks_by_decade_wide(df, n=10, metric='plays', min_decade=1960):
     return _decade_wide(long, 'cell', min_decade)
 
 
+def _concert_night_signal(ts, hour_local, date_local, minutes, spike_start, spike_end,
+                          late_start=22, late_end=1, aft_start=15, aft_end=18):
+    """Within one artist's [spike_start, spike_end] window, find the best
+    candidate 'show night': the calendar day whose late_start-late_end
+    local-time window (22:00-01:00 by default — the classic drive-home-
+    from-a-show pattern) has the most listening, plus that same evening's
+    aft_start-aft_end minutes (15:00-18:00 — a pre-show session). A play
+    between midnight and `late_end` belongs to the *previous* evening's
+    show night (you left the venue before midnight), so its date is
+    shifted back a day before grouping.
+
+    Returns (concert_night_date, late_night_minutes, afternoon_minutes);
+    (None, 0.0, 0.0) if there's no late-night listening in the window."""
+    in_window = (ts >= spike_start) & (ts <= spike_end)
+    if not in_window.any():
+        return None, 0.0, 0.0
+    w_hour, w_minutes, w_date = hour_local[in_window], minutes[in_window], date_local[in_window]
+    show_date = np.where(w_hour < late_end, w_date - np.timedelta64(1, 'D'), w_date)
+    late_mask = (w_hour >= late_start) | (w_hour < late_end)
+    if not late_mask.any():
+        return None, 0.0, 0.0
+    late_by_day = pd.Series(w_minutes[late_mask]).groupby(show_date[late_mask]).sum()
+    concert_night = late_by_day.idxmax()
+    late_night_minutes = late_by_day.max()
+    aft_mask = (w_hour >= aft_start) & (w_hour < aft_end) & (show_date == concert_night)
+    afternoon_minutes = w_minutes[aft_mask].sum()
+    return pd.Timestamp(concert_night), late_night_minutes, afternoon_minutes
+
+
 def artist_concert_warmups(df, spike_days=14, cooldown_days=2,
                            min_spike_hours=2.0, elevation_ratio=3.0):
     """Bands with a "charge up, then crash" listening shape: a concentrated
@@ -712,6 +741,16 @@ def artist_concert_warmups(df, spike_days=14, cooldown_days=2,
     Artists whose most recent play is within cooldown_days of their spike
     (no runway to measure a "return to normal") are dropped — can't tell a
     crash from "still going".
+
+    This compiles the candidate list and its warmup_score exactly as
+    before — that part is intentionally untouched. Each candidate's own
+    selected window is additionally checked for a concert_night_signal
+    (see above): a late-night (10pm-1am) listening cluster, the classic
+    "drove home from a show" pattern, optionally corroborated by a same-
+    day 3-6pm pre-show session. That's returned as extra columns
+    (concert_night, late_night_minutes, afternoon_minutes, has_concert_night)
+    for the caller to use as a *re-ranking* signal on top of this list —
+    it doesn't filter or change warmup_score/the default sort.
 
     One row per qualifying artist: spike_hours, spike_start, spike_end,
     cooldown_hours, drop_pct (share of the spike's daily rate lost right
@@ -747,11 +786,28 @@ def artist_concert_warmups(df, spike_days=14, cooldown_days=2,
         cooldown_hours = minutes[cool_mask].sum() / 60.0
         cooldown_daily = cooldown_hours / cooldown_days
         drop_pct = max(0.0, 1 - cooldown_daily / spike_daily)
+
+        hour_local = g['ts_local'].dt.hour.values
+        # tz_localize(None) first: normalize()/.values on a still-tz-aware
+        # series round-trips through its UTC instant, so the grouping key
+        # (and the displayed concert_night date) would be off by the local
+        # UTC offset. Stripping tz here keeps it a plain local calendar date.
+        date_local = g['ts_local'].dt.tz_localize(None).dt.normalize().values
+        concert_night, late_night_minutes, afternoon_minutes = _concert_night_signal(
+            ts, hour_local, date_local, minutes, spike_start, spike_end)
+
         rows.append((artist, spike_hours, spike_start, spike_end,
-                     cooldown_hours, drop_pct, spike_hours * drop_pct))
+                     cooldown_hours, drop_pct, spike_hours * drop_pct,
+                     concert_night, late_night_minutes, afternoon_minutes))
     out = pd.DataFrame(rows, columns=['artist_name', 'spike_hours', 'spike_start',
                                        'spike_end', 'cooldown_hours', 'drop_pct',
-                                       'warmup_score'])
+                                       'warmup_score', 'concert_night',
+                                       'late_night_minutes', 'afternoon_minutes'])
+    if not out.empty:
+        # >= 15 min of late-night listening on the best candidate night —
+        # roughly a couple of tracks, not one stray skip-through — counts as
+        # corroborating "drove home from a show" evidence.
+        out['has_concert_night'] = out['late_night_minutes'] >= 15.0
     return out.sort_values('warmup_score', ascending=False).reset_index(drop=True)
 
 
