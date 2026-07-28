@@ -1072,6 +1072,7 @@ def render_concert_warmups(warmup_loader):
         table['Never seen live'] = False
         edited = st.data_editor(
             table, width='stretch', hide_index=True, key="warmup_editor",
+            height=38 * len(table) + 38,
             disabled=[c for c in table.columns if c != 'Never seen live'],
             column_config={'Never seen live': st.column_config.CheckboxColumn(
                 'Never seen live', help="Check if you've never actually seen "
@@ -1095,6 +1096,7 @@ def render_concert_warmups(warmup_loader):
     fp_table['Restore'] = False
     fp_edited = st.data_editor(
         fp_table, width='stretch', hide_index=True, key="warmup_fp_editor",
+        height=38 * len(fp_table) + 38,
         disabled=[c for c in fp_table.columns if c != 'Restore'],
         column_config={'Restore': st.column_config.CheckboxColumn('Restore')})
     to_restore = fp_edited.loc[fp_edited['Restore'], 'Band']
