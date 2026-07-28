@@ -421,18 +421,16 @@ def main():
     def _albums():   render_albums(ctx['df'])
     def _genres():   render_genres(ctx['df'])
     def _decades():  render_decades(ctx['df'])
-    def _wrapped():
-        # Computed here, not eagerly in main(), so visiting any other page
-        # doesn't pay for alltime_stats_cached() — only Wrapped needs it.
+    def _story():
+        # alltime computed here, not eagerly in main(), so visiting any other
+        # page doesn't pay for alltime_stats_cached() — only this page needs it.
         alltime = alltime_stats_cached(config.PLAYS_FILE,
                                        os.path.getmtime(config.PLAYS_FILE),
                                        ctx['excl_mtime'], ctx['apply_excl'])
-        render_wrapped(ctx['df'], alltime)
-    def _story():
         story_loader = lambda year: wrapped_story_data_cached(
             config.PLAYS_FILE, os.path.getmtime(config.PLAYS_FILE),
             ctx['excl_mtime'], ctx['apply_excl'], year)
-        render_wrapped_story(ctx['df'], story_loader)
+        render_wrapped_story(ctx['df'], alltime, story_loader)
     def _patterns(): render_patterns(ctx['df'])
     def _bands():    render_bands(ctx['df'])
     def _binges():
@@ -452,17 +450,16 @@ def main():
     def _settings(): render_settings(ctx['df'])
 
     analytics = [
-        st.Page(_wrapped,  title="Wrapped",  icon="🗓️", url_path="wrapped", default=True),
-        st.Page(_story,    title="Wrapped Story", icon="✨", url_path="story"),
+        st.Page(_story,    title="Wrapped Story", icon="✨", url_path="wrapped", default=True),
         st.Page(_artists,  title="Artists",  icon="🎸", url_path="artists"),
         st.Page(_tracks,   title="Tracks",   icon="🎵", url_path="tracks"),
         st.Page(_albums,   title="Albums",   icon="💿", url_path="albums"),
-        st.Page(_rankings, title="Annual favorite bands", icon="🏆", url_path="rankings"),
-        st.Page(_bands,    title="Groups of bands dude", icon="🎤", url_path="bands"),
-        st.Page(_genres,   title="Genres",   icon="🎼", url_path="genres"),
+        st.Page(_rankings, title="Favorite bands by year", icon="🏆", url_path="rankings"),
         st.Page(_patterns, title="Patterns", icon="🕐", url_path="patterns"),
         st.Page(_binges,   title="Binges",   icon="🔥", url_path="binges"),
         st.Page(_decades,  title="Decades",  icon="📅", url_path="decades"),
+        st.Page(_genres,   title="Genres",   icon="🎼", url_path="genres"),
+        st.Page(_bands,    title="Groups of bands dude", icon="🎤", url_path="bands"),
     ]
     tools = [
         st.Page(_artist_filters, title="Artist filters", icon="🚫",
@@ -750,86 +747,88 @@ def _fmt_hour(h):
     return f"{h % 12 or 12}{'am' if h < 12 else 'pm'}"
 
 
-def render_alltime(s):
-    """All-time totals + records (all years, but honoring the kid-stream
-    exclusion toggle), shown atop the Wrapped tab. `s` is the
-    alltime_stats_cached() dict — computed once in main(), not here, so it
-    isn't recomputed on every widget interaction while Wrapped is open."""
-    st.subheader("🏅 All-time")
-    if not s:
-        st.info("No data yet.")
-        return
-
-    c = st.columns(4)
-    c[0].metric("Plays", f"{s['total_plays']:,}")
-    c[1].metric("Hours", f"{s['total_hours']:,.0f}")
-    c[2].metric("Listening days", f"{s['listening_days']:,}")
-    c[3].metric("Span", f"{s['span_years']} yrs")
-    c = st.columns(4)
-    c[0].metric("Artists", f"{s['unique_artists']:,}")
-    c[1].metric("Tracks", f"{s['unique_tracks']:,}")
-    c[2].metric("Albums", f"{s['unique_albums']:,}")
-    c[3].metric("Genres", f"{s['unique_genres']:,}")
-
+def _alltime_stats_table(s):
+    """All-time totals + records as a tidy Stat/Value frame — was a grid of
+    st.metric tiles when this lived on its own 'Wrapped' page; now the top
+    section of the combined Wrapped Story page, ahead of the story widget."""
     share = s['top_artist'][1] / s['total_plays'] * 100
     day, day_n = s['busiest_day']
     mon, mon_n = s['busiest_month']
     yr, yr_n = s['biggest_year']
-    left = [
-        f"🔥 **Busiest day:** {day} ({day_n:,} plays)",
-        f"📆 **Busiest month:** {mon} ({mon_n:,})",
-        f"🗓️ **Biggest year:** {yr} ({yr_n:,})",
-        f"🔁 **Longest streak:** {s['longest_streak']} days in a row",
-        f"🕐 **Peak hour:** {_fmt_hour(s['peak_hour'])}  ·  "
-        f"**Top day:** {_WEEKDAYS[s['top_weekday']]}",
+    rows = [
+        ("Total plays", f"{s['total_plays']:,}"),
+        ("Total hours", f"{s['total_hours']:,.0f}"),
+        ("Listening days", f"{s['listening_days']:,}"),
+        ("Span", f"{s['span_years']} yrs"),
+        ("Artists", f"{s['unique_artists']:,}"),
+        ("Tracks", f"{s['unique_tracks']:,}"),
+        ("Albums", f"{s['unique_albums']:,}"),
+        ("Genres", f"{s['unique_genres']:,}"),
+        ("Busiest day", f"{day} ({day_n:,} plays)"),
+        ("Busiest month", f"{mon} ({mon_n:,} plays)"),
+        ("Biggest year", f"{yr} ({yr_n:,} plays)"),
+        ("Longest streak", f"{s['longest_streak']} days in a row"),
+        ("Peak hour", f"{_fmt_hour(s['peak_hour'])}"),
+        ("Top day of week", _WEEKDAYS[s['top_weekday']]),
+        ("#1 artist", f"{s['top_artist'][0]} ({s['top_artist'][1]:,} plays · {share:.1f}%)"),
+        ("#1 track", f"{s['top_track'][0]} ({s['top_track'][1]:,} plays)"),
+        ("#1 album", f"{s['top_album'][0]} ({s['top_album'][1]:,} plays)"),
+        ("#1 genre", f"{s['top_genre'][0]} ({s['top_genre'][1]:,} plays)"),
+        ("Avg hours/week", f"{s['avg_hours_per_week']}"),
+        ("Full-listen rate", f"{s['full_listen_rate']*100:.0f}%"),
+        ("Skip rate", f"{s['skip_rate']*100:.0f}%"),
     ]
-    right = [
-        f"🥇 **#1 artist:** {s['top_artist'][0]} "
-        f"({s['top_artist'][1]:,} plays · {share:.1f}% of all)",
-        f"🎵 **#1 track:** {s['top_track'][0]} ({s['top_track'][1]:,})",
-        f"💿 **#1 album:** {s['top_album'][0]} ({s['top_album'][1]:,})",
-        f"🎼 **#1 genre:** {s['top_genre'][0]} ({s['top_genre'][1]:,})",
-        f"⏯️ **{s['avg_hours_per_week']} hrs/week**  ·  full-listen "
-        f"{s['full_listen_rate']*100:.0f}%, skip {s['skip_rate']*100:.0f}%",
-    ]
-    col1, col2 = st.columns(2)
-    col1.markdown("\n\n".join(left))
-    col2.markdown("\n\n".join(right))
+    return pd.DataFrame(rows, columns=["Stat", "Value"])
 
 
-def render_wrapped(df, alltime):
-    render_alltime(alltime)
-    st.divider()
-    st.subheader("Wrapped")
-    # "Last 30 days" first so it stays the default (index 0) — Wrapped's
-    # traditional default, unlike the sidebar filter which defaults to all-time.
-    window = st.selectbox("Window", ["Last 30 days", "Last 7 days", "This month", "All time"] +
-                          [str(y) for y in sorted(df['year'].dropna().unique(), reverse=True)])
+def _window_recap_table(df, window):
+    """Same Total plays/Hours/Days/Top artist-track-genre recap the old
+    Wrapped tab showed as metric tiles for a selected window, as a table."""
     w = _apply_range(df, window)
-
     if w.empty:
-        st.info("No plays in this window.")
-        return
-
+        return None
     top_artist = proc.top_artists(w, 1)
     top_track = proc.top_tracks(w, 1)
     top_genre = proc.top_genres(w, 1)
+    rows = [
+        ("Total plays", f"{len(w):,}"),
+        ("Hours listened", f"{w['minutes_played'].sum()/60:,.0f}"),
+        ("Listening days", f"{w['ts_local'].dt.date.nunique():,}"),
+        ("Top artist", top_artist.iloc[0]['artist_name'] if len(top_artist) else "—"),
+        ("Top track", top_track.iloc[0]['track_name'] if len(top_track) else "—"),
+        ("Top genre", top_genre.iloc[0]['genres'] if len(top_genre) else "—"),
+    ]
+    return pd.DataFrame(rows, columns=["Stat", "Value"])
 
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Total plays", f"{len(w):,}")
-    c2.metric("Hours listened", f"{w['minutes_played'].sum()/60:,.0f}")
-    c3.metric("Listening days", f"{w['ts_local'].dt.date.nunique():,}")
-    c1.metric("Top artist", top_artist.iloc[0]['artist_name'] if len(top_artist) else "—")
-    c2.metric("Top track", top_track.iloc[0]['track_name'] if len(top_track) else "—")
-    c3.metric("Top genre", top_genre.iloc[0]['genres'] if len(top_genre) else "—")
 
-
-def render_wrapped_story(df, story_loader):
-    """A swipeable 'story' carousel (src/story.py) of stylized stat cards for
-    one year — the shareable, visual counterpart to the plain Wrapped tab.
-    story_loader(year) is a closure over wrapped_story_data_cached from
-    main(), so each year picked gets its own cache entry."""
+def render_wrapped_story(df, alltime, story_loader):
+    """Combined Wrapped Story page: the plain wrapped data (all-time record
+    table + a window-selectable recap table) on top, the swipeable story
+    carousel (src/story.py) below — one page instead of the old separate
+    Wrapped/Wrapped Story split. story_loader(year) is a closure over
+    wrapped_story_data_cached from main(), so each year picked gets its own
+    cache entry."""
     st.subheader("✨ Wrapped Story")
+
+    st.markdown("**🏅 All-time**")
+    if not alltime:
+        st.info("No data yet.")
+        return
+    st.dataframe(_alltime_stats_table(alltime), width='stretch', hide_index=True)
+
+    # "Last 30 days" first so it stays the default (index 0) — Wrapped's
+    # traditional default, unlike the sidebar filter which defaults to all-time.
+    window = st.selectbox("Recap window", ["Last 30 days", "Last 7 days", "This month", "All time"] +
+                          [str(y) for y in sorted(df['year'].dropna().unique(), reverse=True)])
+    recap = _window_recap_table(df, window)
+    if recap is None:
+        st.info("No plays in this window.")
+    else:
+        st.dataframe(recap, width='stretch', hide_index=True)
+
+    st.divider()
+
+    st.markdown("**Story slides**")
     st.caption("A shareable set of story-style slides for one year — use "
                "the arrow keys, tap the sides, or swipe.")
     years = sorted((int(y) for y in df['year'].dropna().unique()), reverse=True)
