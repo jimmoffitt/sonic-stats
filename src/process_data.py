@@ -22,11 +22,21 @@ from src import config
 # --- settings ---
 
 def load_settings():
-    """Load data/settings.json, filling any missing keys from DEFAULT_SETTINGS."""
+    """Load data/settings.json, filling any missing keys from DEFAULT_SETTINGS.
+    Merges one level deep for dict-valued settings (e.g. 'concert_warmup')
+    rather than a flat dict.update() — otherwise adding a new sub-key to
+    DEFAULT_SETTINGS (like concert_warmup['top_n']) would KeyError on any
+    settings.json saved before that sub-key existed, instead of just
+    filling it in alongside the user's already-saved values."""
     settings = dict(config.DEFAULT_SETTINGS)
     if os.path.exists(config.SETTINGS_FILE):
         with open(config.SETTINGS_FILE, 'r', encoding='utf-8') as f:
-            settings.update(json.load(f))
+            saved = json.load(f)
+        for key, value in saved.items():
+            if isinstance(value, dict) and isinstance(settings.get(key), dict):
+                settings[key] = {**settings[key], **value}
+            else:
+                settings[key] = value
     return settings
 
 
