@@ -294,7 +294,12 @@ def _sidebar_data(df_all):
             try:
                 res = run_pipeline.sync()
                 st.cache_data.clear()
-                st.session_state['_sync_msg'] = f"Synced {res['added']} new play(s)."
+                msg = f"Synced {res['added']} new play(s) ({res['fetched']} fetched)."
+                if res['capped']:
+                    msg += (f" ⚠️ Hit the {config.RECENTLY_PLAYED_LIMIT}-play API "
+                            "limit — older plays since your last sync may be "
+                            "missing. Sync more often to avoid gaps.")
+                st.session_state['_sync_msg'] = msg
                 st.rerun()
             except Exception as e:
                 st.error(f"Sync failed: {e}")
@@ -830,43 +835,12 @@ def _window_recap_table(df, window):
     return pd.DataFrame(rows, columns=["Stat", "Value"])
 
 
-def render_wrapped_story(df, alltime, story_loader):
-    """Combined Wrapped Story page: the plain wrapped data (all-time record
-    table + a window-selectable recap table) on top, the swipeable story
-    carousel (src/story.py) below — one page instead of the old separate
-    Wrapped/Wrapped Story split. story_loader(year) is a closure over
-    wrapped_story_data_cached from main(), so each year picked gets its own
-    cache entry."""
-    header_col, button_col = st.columns([4, 1.3], vertical_alignment="center")
-    header_col.subheader("✨ Wrapped Story")
-    if button_col.button("🎬 Play Wrapped Slides", use_container_width=True):
-        st.session_state['show_story_slides'] = not st.session_state.get(
-            'show_story_slides', False)
-
-    st.markdown("**🏅 All-time**")
-    if not alltime:
-        st.info("No data yet.")
-        return
-    st.dataframe(_alltime_stats_table(alltime), width='stretch', hide_index=True)
-
-    # "Last 30 days" first so it stays the default (index 0) — Wrapped's
-    # traditional default, unlike the sidebar filter which defaults to all-time.
-    window = st.selectbox("Recap window", ["Last 30 days", "Last 7 days", "This month", "All time"] +
-                          [str(y) for y in sorted(df['year'].dropna().unique(), reverse=True)])
-    recap = _window_recap_table(df, window)
-    if recap is None:
-        st.info("No plays in this window.")
-    else:
-        st.dataframe(recap, width='stretch', hide_index=True)
-
-    st.divider()
-
-    if not st.session_state.get('show_story_slides', False):
-        st.caption("Click **🎬 Play Wrapped Slides** above to view this "
-                   "year's story slides.")
-        return
-
-    st.markdown("**Story slides**")
+@st.dialog("✨ Wrapped Story", width="large")
+def _story_slides_dialog(df, story_loader):
+    """The story-carousel popup triggered by 'Play Wrapped Slides'. A real
+    modal (st.dialog), not an inline reveal — the inline toggle this
+    replaced required scrolling past two tables to notice anything had
+    happened, which read as the button doing nothing."""
     st.caption("A shareable set of story-style slides for one year — use "
                "the arrow keys, tap the sides, or swipe.")
     years = sorted((int(y) for y in df['year'].dropna().unique()), reverse=True)
@@ -885,6 +859,34 @@ def render_wrapped_story(df, alltime, story_loader):
         file_name=f"wrapped_story_{year}.html", mime="text/html",
         help="A single self-contained file — data baked in, works offline, "
              "shareable outside the app.")
+
+
+def render_wrapped_story(df, alltime, story_loader):
+    """Combined Wrapped Story page: the plain wrapped data (all-time record
+    table + a window-selectable recap table), plus a button that pops the
+    swipeable story carousel (src/story.py) open in a modal. story_loader
+    (year) is a closure over wrapped_story_data_cached from main(), so each
+    year picked gets its own cache entry."""
+    header_col, button_col = st.columns([4, 1.3], vertical_alignment="center")
+    header_col.subheader("✨ Wrapped Story")
+    if button_col.button("🎬 Play Wrapped Slides", use_container_width=True):
+        _story_slides_dialog(df, story_loader)
+
+    st.markdown("**🏅 All-time**")
+    if not alltime:
+        st.info("No data yet.")
+        return
+    st.dataframe(_alltime_stats_table(alltime), width='stretch', hide_index=True)
+
+    # "Last 30 days" first so it stays the default (index 0) — Wrapped's
+    # traditional default, unlike the sidebar filter which defaults to all-time.
+    window = st.selectbox("Recap window", ["Last 30 days", "Last 7 days", "This month", "All time"] +
+                          [str(y) for y in sorted(df['year'].dropna().unique(), reverse=True)])
+    recap = _window_recap_table(df, window)
+    if recap is None:
+        st.info("No plays in this window.")
+    else:
+        st.dataframe(recap, width='stretch', hide_index=True)
 
 
 def render_patterns(df):
@@ -1248,8 +1250,22 @@ def render_settings(df):
              "— from your uploaded Spotify export, plus any syncs since.")
     if not config.DEMO_MODE:
         st.write(f"- Last sync: {last.get('last_sync_at', 'never')} "
-                 f"(+{last.get('last_new', 0)} new)")
+                 f"(+{last.get('last_new', 0)} new, "
+                 f"{last.get('last_fetched', 0)} fetched)")
         st.write(f"- Sync authorized: {os.path.exists(config.TOKEN_FILE)}")
+        last_at = last.get('last_sync_at')
+        if last.get('last_fetch_capped'):
+            st.warning(
+                f"⚠️ The last sync hit the {config.RECENTLY_PLAYED_LIMIT}-play "
+                "Spotify API limit — plays older than that batch since your "
+                "previous sync may be missing. Sync more often to avoid gaps.")
+        elif last_at:
+            hrs = (pd.Timestamp.now(tz='UTC') - pd.Timestamp(last_at)).total_seconds() / 3600
+            if hrs > 12:
+                st.warning(
+                    f"⚠️ {hrs:.0f}h since your last sync — heavy listening in "
+                    f"that gap could exceed Spotify's {config.RECENTLY_PLAYED_LIMIT}-"
+                    "play recently-played window. Sync more often to avoid gaps.")
     st.caption("Use the sidebar **🚫 Artist filters** to choose which artists "
                "to exclude." + ("" if config.DEMO_MODE else
                                  " Use **🔄 Sync now** to fetch recent plays."))
