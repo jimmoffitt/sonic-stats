@@ -484,7 +484,7 @@ def main():
         st.Page(_albums,   title="Albums",   icon="💿", url_path="albums"),
         st.Page(_rankings, title="Favorite bands by year", icon="🏆", url_path="rankings"),
         st.Page(_patterns, title="Patterns", icon="🕐", url_path="patterns"),
-        st.Page(_binges,   title="Binges",   icon="🔥", url_path="binges"),
+        st.Page(_binges,   title="Binges and Concerts", icon="🔥", url_path="binges"),
         st.Page(_decades,  title="Decades",  icon="📅", url_path="decades"),
         st.Page(_genres,   title="Genres",   icon="🎼", url_path="genres"),
         st.Page(_bands,    title="Groups of Groups dude", icon="🎤", url_path="bands"),
