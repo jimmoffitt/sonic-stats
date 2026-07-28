@@ -46,6 +46,9 @@ EXCLUSIONS_FILE = os.path.join(DATA_DIR, 'exclusions.json')
 # Saved band groups (e.g. "New Zealand" -> list of artist names). Powers the
 # group summaries on the Bands tab. Keyed by artist name (see load_groups).
 GROUPS_FILE = os.path.join(DATA_DIR, 'groups.json')
+# Artists dismissed from the Concert warm-up table as "never actually seen
+# live" — a flat list of artist names. See render_concert_warmups.
+WARMUP_FALSE_POSITIVES_FILE = os.path.join(DATA_DIR, 'warmup_false_positives.json')
 
 # 3. Secrets / OAuth
 CLIENT_ID = os.getenv('SPOTIFY_CLIENT_ID')
@@ -103,6 +106,7 @@ if DEMO_MODE:
     EXCLUSIONS_FILE = os.path.join(DEMO_DIR, 'exclusions.json')
     GROUPS_FILE = os.path.join(DEMO_DIR, 'groups.json')
     LAST_SYNC_FILE = os.path.join(DEMO_DIR, 'last_sync.json')
+    WARMUP_FALSE_POSITIVES_FILE = os.path.join(DEMO_DIR, 'warmup_false_positives.json')
     os.makedirs(DEMO_DIR, exist_ok=True)
 
 # 7. Defaults used when settings.json doesn't exist yet

@@ -258,13 +258,27 @@ def _sidebar_options():
     return apply_excl, dark
 
 
+def _relative_time(ts):
+    """Human relative-time phrase down to the minute: 'just now', '12 min
+    ago', '3h ago', '2d ago' — finer-grained than the sync-freshness phrase
+    below since the latest *listen* (unlike a sync run) can be minutes old."""
+    mins = (pd.Timestamp.now(tz='UTC') - pd.Timestamp(ts)).total_seconds() / 60
+    if mins < 1:
+        return "just now"
+    if mins < 60:
+        return f"{mins:.0f} min ago"
+    hrs = mins / 60
+    return f"{hrs:.0f}h ago" if hrs < 48 else f"{hrs / 24:.0f}d ago"
+
+
 def _sidebar_data(df_all):
     """Data-freshness section in the sidebar: the most recent play (when,
     what), how current the sync is, plus a one-click Sync. Shown on every
     page so updating is always at hand."""
     st.markdown("**Data**")
     latest = df_all.loc[df_all['ts'].idxmax()]
-    st.caption(f"Latest play: {latest['ts'].strftime('%Y-%m-%d %H:%M UTC')}")
+    st.caption(f"Latest play: {latest['ts'].strftime('%Y-%m-%d %H:%M UTC')} "
+               f"({_relative_time(latest['ts'])})")
     st.caption(f"🎵 {latest['track_name']} — {latest['artist_name']}")
 
     if config.DEMO_MODE:
@@ -1027,21 +1041,68 @@ def render_concert_warmups(warmup_loader):
         st.info("Not enough data to find this pattern yet — try loosening "
                 "the knobs above.")
         return
-    shown = warmups.head(10)
-    table = shown.assign(
+
+    false_positives = set(proc.load_warmup_false_positives())
+    legit = warmups[~warmups['artist_name'].isin(false_positives)]
+    flagged = warmups[warmups['artist_name'].isin(false_positives)]
+
+    shown = legit.head(10)
+    if shown.empty:
+        st.info("Not enough data to find this pattern yet — try loosening "
+                "the knobs above, or you've flagged everything below.")
+    else:
+        table = _warmup_table(shown, spike_days, cooldown_days)
+        table['Never seen live'] = False
+        edited = st.data_editor(
+            table, width='stretch', hide_index=True, key="warmup_editor",
+            disabled=[c for c in table.columns if c != 'Never seen live'],
+            column_config={'Never seen live': st.column_config.CheckboxColumn(
+                'Never seen live', help="Check if you've never actually seen "
+                "this band since you started using Spotify — moves it down "
+                "to False concert positives instead of ranking it as a "
+                "warm-up.")})
+        newly_flagged = edited.loc[edited['Never seen live'], 'Band']
+        if len(newly_flagged):
+            proc.save_warmup_false_positives(false_positives | set(newly_flagged))
+            st.rerun()
+
+    st.divider()
+    st.markdown("**🙅 False concert positives**")
+    st.caption("Bands you've marked as never actually seen live — parked "
+               "here instead of ranked as a warm-up. Check **Restore** to "
+               "move one back.")
+    if flagged.empty:
+        st.caption("None yet.")
+        return
+    fp_table = _warmup_table(flagged, spike_days, cooldown_days)
+    fp_table['Restore'] = False
+    fp_edited = st.data_editor(
+        fp_table, width='stretch', hide_index=True, key="warmup_fp_editor",
+        disabled=[c for c in fp_table.columns if c != 'Restore'],
+        column_config={'Restore': st.column_config.CheckboxColumn('Restore')})
+    to_restore = fp_edited.loc[fp_edited['Restore'], 'Band']
+    if len(to_restore):
+        proc.save_warmup_false_positives(false_positives - set(to_restore))
+        st.rerun()
+
+
+def _warmup_table(rows, spike_days, cooldown_days):
+    """Shared display formatting for both the live Concert warm-up table and
+    the False concert positives table below it."""
+    table = rows.assign(
         window=[f"{pd.Timestamp(s).date()} → {pd.Timestamp(e).date()}"
-                for s, e in zip(shown['spike_start'], shown['spike_end'])],
-        spike_hours=shown['spike_hours'].round(1),
-        cooldown_hours=shown['cooldown_hours'].round(1),
-        drop_pct=(shown['drop_pct'] * 100).round(0).astype(int),
+                for s, e in zip(rows['spike_start'], rows['spike_end'])],
+        spike_hours=rows['spike_hours'].round(1),
+        cooldown_hours=rows['cooldown_hours'].round(1),
+        drop_pct=(rows['drop_pct'] * 100).round(0).astype(int),
     )
-    st.dataframe(table[['artist_name', 'spike_hours', 'window', 'cooldown_hours',
-                        'drop_pct']].rename(columns={
+    return table[['artist_name', 'spike_hours', 'window', 'cooldown_hours',
+                 'drop_pct']].rename(columns={
         'artist_name': 'Band', 'spike_hours': f'Spike hours ({spike_days}d)',
         'window': 'Spike window',
         'cooldown_hours': f'Hours after (next {cooldown_days}d)',
         'drop_pct': 'Drop %',
-    }), width='stretch', hide_index=True)
+    }).reset_index(drop=True)
 
 
 def render_bands(df):

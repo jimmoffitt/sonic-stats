@@ -88,6 +88,23 @@ def save_groups(groups, path=config.GROUPS_FILE):
         json.dump(groups, f, indent=2, ensure_ascii=False)
 
 
+def load_warmup_false_positives(path=config.WARMUP_FALSE_POSITIVES_FILE):
+    """Artist names dismissed from the Concert warm-up table (see
+    render_concert_warmups) — a flat JSON list, e.g. bands whose 'spike then
+    crash' pattern the user has confirmed was never actually a show they
+    went to. Missing file -> []."""
+    if os.path.exists(path):
+        with open(path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    return []
+
+
+def save_warmup_false_positives(names, path=config.WARMUP_FALSE_POSITIVES_FILE):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump(sorted(set(names)), f, indent=2, ensure_ascii=False)
+
+
 def _month_index(year, month):
     """Map a (year, month) to a single comparable integer (months since year 0)."""
     return int(year) * 12 + (int(month) - 1)
