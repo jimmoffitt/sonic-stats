@@ -115,6 +115,12 @@ DEFAULT_SETTINGS = {
         'enriched': ENRICHED_DIR,
         'processed': PROCESSED_DIR,
     },
+    'concert_warmup': {                # Binges page's Concert warm-up sliders
+        'spike_days': 14,
+        'min_spike_hours': 2.0,
+        'elevation_ratio': 3.0,
+        'cooldown_days': 2,
+    },
 }
 
 

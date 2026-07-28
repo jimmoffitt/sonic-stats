@@ -101,14 +101,31 @@ def line_by_year(df, value_col='plays', title=None):
     return fig
 
 
-def decade_bar(df, value_col='plays', title=None):
-    """Vertical bar of plays (or minutes) per release decade."""
+def decade_bar(df, value_col='plays', title=None, spotify_start_decade=None,
+              spotify_start_year=None):
+    """Vertical bar of plays (or minutes) per release decade. When
+    `spotify_start_decade` (e.g. 2010) falls within the chart, it's
+    annotated as the decade you joined Spotify — release decades at/after
+    that point are more likely real-time new-release listening, while
+    earlier ones are inherently back-catalog (and more exposed to a
+    reissue/remaster's release_date masking the music's true original
+    decade — Spotify's metadata doesn't distinguish the two)."""
     fig = go.Figure(go.Bar(
         x=df['decade'].astype(str) + 's',
         y=df[value_col],
         marker_color=SPOTIFY_GREEN,
         hovertemplate=f'%{{x}}<br>{value_col}: %{{y}}<extra></extra>',
     ))
+    if spotify_start_decade is not None and spotify_start_decade in set(df['decade']):
+        fig.add_annotation(
+            x=f"{int(spotify_start_decade)}s",
+            y=df.loc[df['decade'] == spotify_start_decade, value_col].iloc[0],
+            text=f"📱 Joined Spotify ~{spotify_start_year}",
+            showarrow=True, arrowhead=2, arrowcolor=_font_color(),
+            ax=0, ay=-55,
+            font=dict(color=_font_color(), size=11),
+            bgcolor=_plot_bg(), bordercolor=_grid_color(), borderwidth=1,
+        )
     fig.update_layout(**_base_layout(
         title=title,
         xaxis=dict(title='Decade'),
@@ -192,6 +209,31 @@ def genre_treemap(tree_df, value_col='plays', title=None):
         hovertemplate=f'%{{label}}<br>{value_col}: %{{value:{num_fmt}}}<extra></extra>',
     ))
     fig.update_layout(**_base_layout(title=title, height=500))
+    return fig
+
+
+def genre_pie(macro_df, value_col='plays', title=None):
+    """Donut chart of macro genre family share — same fixed family->color
+    mapping as genre_treemap (process_data.GENRE_MACRO_COLOR_ORDER, 'Other'
+    in neutral gray), so a family reads as the same color in both charts.
+    Expects process_data.macro_genre_breakdown()'s output: one row per
+    family, already in GENRE_MACRO_COLOR_ORDER (+ 'Other' last)."""
+    palette = _GENRE_MACRO_COLORS_DARK if _dark else _GENRE_MACRO_COLORS_LIGHT
+    other = _GENRE_OTHER_COLOR['dark' if _dark else 'light']
+    colors = [palette.get(name, other) for name in macro_df['macro_genre']]
+
+    num_fmt = ',.0f' if value_col == 'plays' else ',.1f'
+    fig = go.Figure(go.Pie(
+        labels=macro_df['macro_genre'],
+        values=macro_df[value_col],
+        hole=0.45,
+        sort=False,  # keep our fixed family order, not plotly's largest-first
+        marker=dict(colors=colors, line=dict(color=_paper_bg(), width=2)),
+        textinfo='label+percent',
+        textfont=dict(color=_font_color()),
+        hovertemplate=f'%{{label}}<br>{value_col}: %{{value:{num_fmt}}}<extra></extra>',
+    ))
+    fig.update_layout(**_base_layout(title=title, height=460, showlegend=True))
     return fig
 
 

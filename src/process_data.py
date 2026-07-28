@@ -453,6 +453,27 @@ def genre_group_treemap_data(df, metric='plays', top_micro_per_macro=6):
     return pd.DataFrame(rows)
 
 
+def macro_genre_breakdown(df, metric='plays'):
+    """Macro genre family totals only (no micro-genre breakout) — the pie
+    slice data for the Genres tab, and the top level of
+    genre_group_treemap_data's tree. Rows are ordered by
+    GENRE_MACRO_COLOR_ORDER (with 'Other' last) rather than by size, so a
+    family's slice/legend position — and therefore its assigned color —
+    stays fixed regardless of which is biggest in the current date range."""
+    exploded = df.explode('genres').dropna(subset=['genres']).copy()
+    exploded['macro_genre'] = exploded['genres'].map(_macro_genre)
+    agg = (exploded.groupby('macro_genre')
+                   .agg(plays=('ts', 'size'), minutes=('minutes_played', 'sum'))
+                   .reset_index())
+    agg['minutes'] = agg['minutes'].round(1)
+    order = {name: i for i, name in enumerate(GENRE_MACRO_COLOR_ORDER + [_GENRE_MACRO_OTHER])}
+    agg['_order'] = agg['macro_genre'].map(order)
+    agg = agg.sort_values('_order').drop(columns='_order').reset_index(drop=True)
+    total = agg[metric].sum()
+    agg['pct'] = (agg[metric] / total * 100).round(1) if total else 0.0
+    return agg
+
+
 def _sliding_window_peaks(df, group_cols, window_days=7):
     """For each group, find the [window_days]-day window (a true sliding
     window ending at some play — not calendar-aligned bins, so a binge
