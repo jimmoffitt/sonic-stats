@@ -146,15 +146,26 @@ def sync():
     plays = _load_all_plays()
     df = _enrich_and_build(plays)
 
+    # recently-played hard-caps at RECENTLY_PLAYED_LIMIT (50) items per call —
+    # if this fetch came back full, there may be plays *older* than the 50th
+    # that happened since the last sync and were never returned at all, not
+    # just deduped. That's a silent gap, not a dedup non-event, so it's
+    # tracked and surfaced separately from `added`.
+    capped = len(items) >= config.RECENTLY_PLAYED_LIMIT
     new_last_ms = fetch_data.latest_played_at_ms(items)
     state = {'total_plays': len(df), 'last_new': added,
+             'last_fetched': len(items), 'last_fetch_capped': capped,
              'last_sync_at': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}
     if new_last_ms is not None:
         state['last_played_at_ms'] = new_last_ms
     _write_last_sync(**state)
 
     print(f"\n✅ Sync complete: {added} new play(s) appended; {len(df):,} total.")
-    return {'added': added, 'total': len(df)}
+    if capped:
+        print(f"  ⚠️  Fetched the full {config.RECENTLY_PLAYED_LIMIT}-play limit — "
+              "plays older than this batch since your last sync may be missing. "
+              "Sync more often to avoid gaps.")
+    return {'added': added, 'total': len(df), 'fetched': len(items), 'capped': capped}
 
 
 def status():
