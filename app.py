@@ -468,7 +468,7 @@ def main():
         st.Page(_binges,   title="Binges",   icon="🔥", url_path="binges"),
         st.Page(_decades,  title="Decades",  icon="📅", url_path="decades"),
         st.Page(_genres,   title="Genres",   icon="🎼", url_path="genres"),
-        st.Page(_bands,    title="Groups of bands dude", icon="🎤", url_path="bands"),
+        st.Page(_bands,    title="Groups of Groups dude", icon="🎤", url_path="bands"),
     ]
     tools = [
         st.Page(_artist_filters, title="Artist filters", icon="🚫",
@@ -705,6 +705,14 @@ def render_genres(df):
                     use_container_width=True)
 
     st.divider()
+    st.subheader("Genre family share")
+    macro = proc.macro_genre_breakdown(view, metric=value_col)
+    if not macro.empty:
+        st.plotly_chart(charts.genre_pie(macro, value_col,
+                                         f"Share of {value_label.lower()} by genre family"),
+                        use_container_width=True)
+
+    st.divider()
     st.subheader("Top genres")
     top = proc.top_genres(view, n=25, metric=value_col)
     if not top.empty:
@@ -718,12 +726,24 @@ def render_decades(df):
     value_col, value_label = metric_columns(metric)
     view = _apply_range(df, range_sel)
     st.subheader("Listening by release decade")
+    st.caption("Release decade comes from Spotify's album metadata, which "
+               "usually reflects the *edition* you streamed (a remaster or "
+               "reissue) rather than the music's original release — so some "
+               "of this can be skewed toward a later decade than it truly "
+               "came from. The marker below shows roughly when you started "
+               "using Spotify: decades at/after it are more likely "
+               "real-time new-release listening; earlier decades are "
+               "inherently back-catalog, and where that skew concentrates.")
     dec = proc.decade_breakdown(view)
     if dec.empty:
         st.info("No release-date data yet — run track enrichment.")
         return
+    first_play_year = int(df['ts'].min().year)
+    first_play_decade = first_play_year // 10 * 10
     st.plotly_chart(charts.decade_bar(dec, value_col,
-                                      f"{value_label} by decade"),
+                                      f"{value_label} by decade",
+                                      spotify_start_decade=first_play_decade,
+                                      spotify_start_year=first_play_year),
                     use_container_width=True)
 
     st.divider()
@@ -817,7 +837,11 @@ def render_wrapped_story(df, alltime, story_loader):
     Wrapped/Wrapped Story split. story_loader(year) is a closure over
     wrapped_story_data_cached from main(), so each year picked gets its own
     cache entry."""
-    st.subheader("✨ Wrapped Story")
+    header_col, button_col = st.columns([4, 1.3], vertical_alignment="center")
+    header_col.subheader("✨ Wrapped Story")
+    if button_col.button("🎬 Play Wrapped Slides", use_container_width=True):
+        st.session_state['show_story_slides'] = not st.session_state.get(
+            'show_story_slides', False)
 
     st.markdown("**🏅 All-time**")
     if not alltime:
@@ -836,6 +860,11 @@ def render_wrapped_story(df, alltime, story_loader):
         st.dataframe(recap, width='stretch', hide_index=True)
 
     st.divider()
+
+    if not st.session_state.get('show_story_slides', False):
+        st.caption("Click **🎬 Play Wrapped Slides** above to view this "
+                   "year's story slides.")
+        return
 
     st.markdown("**Story slides**")
     st.caption("A shareable set of story-style slides for one year — use "
@@ -950,30 +979,44 @@ def render_concert_warmups(warmup_loader):
     st.caption("Bands that surged, then dropped off sharply right after — "
                "ranked by spike hours × how steep the drop was. A guess: "
                "this often lines up with a show. Tune the pattern below if "
-               "it's not matching what you remember.")
+               "it's not matching what you remember — your settings are "
+               "saved automatically.")
+    # Sliders default to the last-saved values (data/settings.json) rather
+    # than fixed constants, and any change is written straight back below —
+    # so the tuning persists across sessions instead of resetting every run.
+    saved = proc.load_settings()['concert_warmup']
     c1, c2 = st.columns(2)
-    spike_days = c1.slider("Build-up window (days)", 3, 30, 14,
+    spike_days = c1.slider("Build-up window (days)", 3, 30, saved['spike_days'],
                            key="warmup_spike_days",
                            help="How many days of build-up counts as one "
                                 "'show cycle' — the window the spike is "
                                 "measured over.")
     min_spike_hours = c2.slider("Minimum hours of listening in that window",
-                                0.0, 20.0, 2.0, step=0.5, key="warmup_min_hours",
+                                0.0, 20.0, saved['min_spike_hours'], step=0.5,
+                                key="warmup_min_hours",
                                 help="Ignore spikes below this many hours "
                                      "total — filters out one-off blips.")
     c3, c4 = st.columns(2)
     elevation_ratio = c3.slider("Elevated rotation (× your normal rate)",
-                                1.0, 10.0, 3.0, step=0.5, key="warmup_elevation",
+                                1.0, 10.0, saved['elevation_ratio'], step=0.5,
+                                key="warmup_elevation",
                                 help="How far above that artist's normal "
                                      "daily rate the spike must be to count "
                                      "as genuinely 'elevated' — without this, "
                                      "an artist you always play a lot would "
                                      "trivially have a 'biggest window ever'.")
     cooldown_days = c4.slider("Drop-off window after the spike (days)",
-                              1, 14, 2, key="warmup_cooldown_days",
+                              1, 14, saved['cooldown_days'], key="warmup_cooldown_days",
                               help="How soon after the spike to check for "
                                    "the crash — set to 1 for a same-day/"
                                    "next-day drop-off.")
+
+    current = {'spike_days': spike_days, 'min_spike_hours': min_spike_hours,
+               'elevation_ratio': elevation_ratio, 'cooldown_days': cooldown_days}
+    if current != saved:
+        settings = proc.load_settings()
+        settings['concert_warmup'] = current
+        proc.save_settings(settings)
 
     warmups = warmup_loader(spike_days=spike_days, cooldown_days=cooldown_days,
                             min_spike_hours=min_spike_hours,
