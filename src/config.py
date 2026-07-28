@@ -124,6 +124,8 @@ DEFAULT_SETTINGS = {
         'min_spike_hours': 2.0,
         'elevation_ratio': 3.0,
         'cooldown_days': 2,
+        'top_n': 10,
+        'rank_by_concert_night': True,
     },
 }
 
