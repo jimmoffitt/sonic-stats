@@ -502,9 +502,11 @@ def main():
     # and slot the Data section and options between the two nav groups.
     pg = st.navigation({"Analytics": analytics, "Tools & settings": tools},
                        position="hidden")
-    is_analytics = pg.url_path in {p.url_path for p in analytics}
 
     with st.sidebar:
+        st.title("🎵 sonic-stats")
+        st.caption(f"{len(df_all):,} plays · {df_all['minutes_played'].sum()/60:,.0f} "
+                  f"hours · {df_all['artist_name'].nunique():,} artists")
         _sidebar_dark = st.context.theme.type == 'dark'
         _sidebar_bg = '#262730' if _sidebar_dark else '#f0f2f6'
         # Streamlit's native sidebar open/close buttons default to a ~28px hit
@@ -614,21 +616,12 @@ def main():
     df = (filtered_plays_cached(config.PLAYS_FILE,
                                 os.path.getmtime(config.PLAYS_FILE), excl_mtime)
           if apply_excl else df_all)
-    n_excluded = len(df_all) - len(df)
 
     ctx.update(df=df, excl_mtime=excl_mtime, apply_excl=apply_excl)
 
-    st.title("🎵 sonic-stats")
-    if is_analytics:
-        # All-time totals for the current exclusion state — "the selected
-        # range" is no longer a single global concept now that Date range
-        # lives on individual pages instead of the sidebar.
-        caption = (f"{len(df):,} plays · {df['minutes_played'].sum()/60:,.0f} "
-                   f"hours · {df['artist_name'].nunique():,} artists")
-        caption += (f"  ·  🧒 filtered ({n_excluded:,} kid streams removed)"
-                    if apply_excl and n_excluded else "  ·  unfiltered (all streams)")
-        st.caption(caption)
-
+    # "🎵 sonic-stats" branding + totals live in the sidebar now (top of the
+    # with st.sidebar: block above) — nothing renders here before pg.run(),
+    # so each page's own heading is the very first thing in the main area.
     pg.run()
 
 
@@ -738,6 +731,22 @@ def render_genres(df):
         st.plotly_chart(charts.ranked_bar(top, 'genres', value_col,
                                           f"Top genres by {value_label.lower()}"),
                         use_container_width=True)
+
+    st.divider()
+    st.subheader("Top bands by genre")
+    top10_genres = proc.top_genres(view, n=10, metric=value_col)
+    genre_choice = st.selectbox("Genre", ["All"] + top10_genres['genres'].tolist(),
+                                key="genre_band_filter")
+    band_n = st.slider("Bands to show", 5, 25, 10, key="genre_band_n")
+    genre_filter = None if genre_choice == "All" else genre_choice
+    top_bands = proc.top_artists_by_genre(view, genre_filter, n=band_n, metric=value_col)
+    if top_bands.empty:
+        st.info("No bands found for this genre in the selected range.")
+    else:
+        st.dataframe(top_bands.rename(columns={
+            'rank': 'Rank', 'artist_name': 'Band',
+            'plays': 'Plays', 'minutes': 'Minutes',
+        }), width='stretch', hide_index=True)
 
 
 def render_decades(df):
@@ -1132,7 +1141,7 @@ def render_bands(df):
     """Bands tab: single-band deep dive + saved group summaries (full archive)."""
     st.subheader("🎤 Bands")
     mode = st.radio("Mode", ["Single band", "Groups"], horizontal=True,
-                    key="bands_mode")
+                    index=1, key="bands_mode")
     if mode == "Single band":
         render_single_band(df)
     else:
@@ -1185,6 +1194,18 @@ def render_single_band(df):
 def render_groups(df):
     groups = proc.load_groups()
     names = sorted(groups)
+
+    st.markdown("**Your groups**")
+    if names:
+        overview = pd.DataFrame([
+            {'Group': name, 'Bands': len(members), 'Members': ', '.join(members)}
+            for name, members in ((n, groups[n]) for n in names)
+        ])
+        st.dataframe(overview, width='stretch', hide_index=True)
+    else:
+        st.caption("No groups saved yet — create one below.")
+    st.divider()
+
     choice = st.selectbox("Group", ["➕ New group…"] + names)
     is_new = choice == "➕ New group…"
     cur_name = "" if is_new else choice

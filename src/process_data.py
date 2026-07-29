@@ -403,6 +403,19 @@ def top_genres(df, n=20, metric='plays'):
     return _agg_counts(exploded, 'genres', metric).head(n)
 
 
+def top_artists_by_genre(df, genre, n=10, metric='plays'):
+    """Top-N artists tagged with `genre` (an exact match against the
+    exploded micro-genre tags, e.g. 'indie rock') — the Genres tab's
+    per-genre band leaderboard. `genre=None` returns top artists overall
+    (the "All" option), same ranking as top_artists() but with a rank
+    column added for direct table display."""
+    exploded = df.explode('genres').dropna(subset=['genres'])
+    sub = exploded[exploded['genres'] == genre] if genre else df
+    out = _agg_counts(sub, 'artist_name', metric).head(n).reset_index(drop=True)
+    out.insert(0, 'rank', out.index + 1)
+    return out
+
+
 # Spotify's genre taxonomy is hundreds of narrow micro-genres (e.g. 'jangle
 # pop', 'power pop', 'dream pop', 'art pop' all separately) that fragment any
 # flat ranking. This buckets them into ~8 broad families by keyword, checked
