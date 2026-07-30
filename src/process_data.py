@@ -177,8 +177,23 @@ def apply_exclusions(df, exclusions):
     month_idx = df['year'] * 12 + (df['month'] - 1)
     drop = pd.Series(False, index=df.index)
 
+    # One O(n) hash-based grouping pass instead of a fresh O(n) string-
+    # equality scan per rule. Profiled at ~1.2s for 286 real rules over
+    # 232k rows before this change (94% of the function's time) — pandas
+    # has no vectorized fast path for object-dtype string equality
+    # (comp_method_OBJECT_ARRAY), so `artist_lower == name` cost roughly
+    # the same whether or not that artist even appears in the data.
+    # .indices maps each lowercased name to its row positions in one pass;
+    # everything downstream is unchanged, just fed a mask built from a
+    # dict lookup instead of a full re-scan.
+    group_positions = artist_lower.groupby(artist_lower, sort=False).indices
+
     for artist, rule in rules.items():
-        is_artist = artist_lower == str(artist).lower()
+        positions = group_positions.get(str(artist).lower())
+        if positions is None:
+            continue
+        is_artist = pd.Series(False, index=df.index)
+        is_artist.iloc[positions] = True
         if not is_artist.any():
             continue
 
@@ -457,6 +472,20 @@ def _macro_genre(genre):
     return _GENRE_MACRO_OTHER
 
 
+def _explode_with_macro_genre(df):
+    """Shared first step for genre_group_treemap_data/macro_genre_breakdown:
+    explode the list-valued genres column, then classify each row's macro
+    genre family. Classifies via a lookup built from the *unique* genre
+    strings rather than df['genres'].map(_macro_genre) directly — profiled
+    at 0.43s for 251k exploded rows vs. 0.01s building+applying a ~580-
+    entry dict first (same keyword-matching logic, just run once per
+    distinct genre instead of once per row)."""
+    exploded = df.explode('genres').dropna(subset=['genres']).copy()
+    macro_lookup = {g: _macro_genre(g) for g in exploded['genres'].unique()}
+    exploded['macro_genre'] = exploded['genres'].map(macro_lookup)
+    return exploded
+
+
 def genre_group_treemap_data(df, metric='plays', top_micro_per_macro=6):
     """Two-level treemap data: macro genre family -> its top micro-genres.
     Returns a tidy frame with one row per node (macro rows have
@@ -464,8 +493,7 @@ def genre_group_treemap_data(df, metric='plays', top_micro_per_macro=6):
     value is its *full* total (all micro-genres, not just the ones shown
     as children), so the macro block sizes reflect true totals even though
     only the top few micro-genres are broken out inside it."""
-    exploded = df.explode('genres').dropna(subset=['genres']).copy()
-    exploded['macro_genre'] = exploded['genres'].map(_macro_genre)
+    exploded = _explode_with_macro_genre(df)
 
     micro = (exploded.groupby(['macro_genre', 'genres'])
                      .agg(plays=('ts', 'size'), minutes=('minutes_played', 'sum'))
@@ -500,8 +528,7 @@ def macro_genre_breakdown(df, metric='plays'):
     GENRE_MACRO_COLOR_ORDER (with 'Other' last) rather than by size, so a
     family's slice/legend position — and therefore its assigned color —
     stays fixed regardless of which is biggest in the current date range."""
-    exploded = df.explode('genres').dropna(subset=['genres']).copy()
-    exploded['macro_genre'] = exploded['genres'].map(_macro_genre)
+    exploded = _explode_with_macro_genre(df)
     agg = (exploded.groupby('macro_genre')
                    .agg(plays=('ts', 'size'), minutes=('minutes_played', 'sum'))
                    .reset_index())

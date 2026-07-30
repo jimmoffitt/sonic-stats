@@ -13,8 +13,11 @@ what it kept, so a future column added to build_plays_df doesn't silently
 ride along into the public demo without a deliberate decision.
 
 Also copies data/exclusions.json (artist names + before/after/keep rules —
-no play-level data) to data/demo/exclusions.json as-is, so the demo actually
-demonstrates the "Remove kid streams" filter instead of leaving it a no-op.
+no play-level data) to data/demo/exclusions.json, and data/groups.json
+(group name -> list of artist names, equally no play-level data) to
+data/demo/groups.json, both as-is, so the demo actually demonstrates the
+"Remove kid streams" filter and the Bands/Groups tab instead of leaving
+them a no-op / empty.
 
 The app switches to this dataset in demo mode (see DEMO_MODE in
 src/config.py). Rerun this script after a sync to refresh the demo data,
@@ -42,6 +45,8 @@ FIELD_WHITELIST = [
 REAL_PLAYS_FILE = os.path.join('data', 'processed', 'plays.parquet')
 REAL_EXCLUSIONS_FILE = os.path.join('data', 'exclusions.json')
 DEMO_EXCLUSIONS_FILE = os.path.join('data', 'demo', 'exclusions.json')
+REAL_GROUPS_FILE = os.path.join('data', 'groups.json')
+DEMO_GROUPS_FILE = os.path.join('data', 'demo', 'groups.json')
 
 
 def main():
@@ -66,6 +71,14 @@ def main():
     else:
         print(f"No {REAL_EXCLUSIONS_FILE} found — demo will have no exclusion "
               f"rules (the 'Remove kid streams' toggle will be a no-op).")
+
+    if os.path.exists(REAL_GROUPS_FILE):
+        shutil.copyfile(REAL_GROUPS_FILE, DEMO_GROUPS_FILE)
+        n_groups = len(json.load(open(REAL_GROUPS_FILE)))
+        print(f"Wrote {n_groups:,} group(s) -> {DEMO_GROUPS_FILE}")
+    else:
+        print(f"No {REAL_GROUPS_FILE} found — demo will have no saved "
+              f"groups (the Bands/Groups tab will start empty).")
 
 
 if __name__ == '__main__':

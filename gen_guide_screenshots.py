@@ -60,25 +60,28 @@ def _capture(page, base, path, out, *, wait_text, interact=None):
     print(f"  ✓ {out}")
 
 
+def _open_single_band(page):
+    """On the Bands page (Groups is the default mode): switch to Single band."""
+    page.get_by_text("Single band", exact=True).click()
+    page.wait_for_selector("text=Search artist", timeout=20000)
+
+
 def _open_groups(page):
-    """On the Bands page: switch to Groups mode and select the New Zealand group."""
-    # Streamlit hides the real radio <input> and styles the label, so click text.
-    page.get_by_text("Groups", exact=True).click()
-    page.wait_for_timeout(1500)
-    # Open the group selectbox (main area) and pick New Zealand.
+    """On the Bands page: select the New Zealand group (Groups is already the
+    default mode, so no need to click it — just open the group picker)."""
     page.get_by_text("➕ New group…").first.click()
     page.get_by_role("option", name="New Zealand").click()
     page.wait_for_selector("text=Share of all plays", timeout=20000)
 
 
 # (url_path, output_file, text-to-wait-for, optional interaction)
-# Wrapped is the default page, served at "/" — requesting "/wrapped" would hit
-# Streamlit's "page not found" fallback, so capture it at the root.
+# Wrapped Story is the default page, served at "/" — requesting "/wrapped"
+# would hit Streamlit's "page not found" fallback, so capture it at the root.
 SHOTS = [
     ("/",         "wrapped.png",      "All-time"),
     ("/artists",  "artists.png",      "Top artists"),
     ("/rankings", "rankings.png",     "Top artists per year"),
-    ("/bands",    "bands_single.png", "Search artist"),
+    ("/bands",    "bands_single.png", "Single band", _open_single_band),
     ("/bands",    "bands_groups.png", "Single band", _open_groups),
     ("/patterns", "patterns.png",     "When do I listen?"),
     ("/artist-filters", "artist_filters.png", "Artist filters"),
@@ -94,7 +97,8 @@ def main():
     proc = subprocess.Popen(
         [sys.executable, "-m", "streamlit", "run", "app.py",
          "--server.headless", "true", "--server.port", str(port),
-         "--browser.gatherUsageStats", "false"],
+         "--browser.gatherUsageStats", "false",
+         "--theme.base", "light"],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
         if not _wait_ready(port):
