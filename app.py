@@ -248,14 +248,14 @@ def _page_filters(df_all, with_metric=True):
 
 def _sidebar_options():
     """Global display/data options — always visible (not just on Analytics
-    pages), since kid-stream exclusion and dark charts both affect every page,
-    not only the Analytics tabs. Returns (apply_excl, dark)."""
-    apply_excl = st.toggle(
+    pages), since kid-stream exclusion affects every page, not only the
+    Analytics tabs. Chart theming isn't a separate option here anymore — it
+    follows Streamlit's own light/dark theme directly (see main()), rather
+    than a manual toggle that could drift out of sync with it."""
+    return st.toggle(
         "Remove kid streams?", value=True,
         help="Filter out the artists/years configured under Artist filters "
              "(e.g. shared-account years).")
-    dark = st.toggle("Dark charts", value=False)
-    return apply_excl, dark
 
 
 def _relative_time(ts):
@@ -570,7 +570,7 @@ def main():
         st.markdown("**Tools & settings**")
         for p in tools:
             st.page_link(p)
-        apply_excl, dark = _sidebar_options()
+        apply_excl = _sidebar_options()
 
         # Selecting a page link on mobile leaves the sidebar covering the
         # whole screen with no obvious next step. Auto-collapse it after
@@ -609,7 +609,11 @@ def main():
             st.iframe(_autoclose_js, height=1)
         else:
             components.html(_autoclose_js, height=0, scrolling=False)
-    charts.set_theme(dark)
+    # Charts follow Streamlit's own theme directly rather than a separate
+    # manual toggle, so they can't drift out of sync with the rest of the
+    # app's light/dark chrome (the sidebar background above uses the same
+    # signal).
+    charts.set_theme(st.context.theme.type == 'dark')
 
     excl_mtime = (os.path.getmtime(config.EXCLUSIONS_FILE)
                   if os.path.exists(config.EXCLUSIONS_FILE) else 0)

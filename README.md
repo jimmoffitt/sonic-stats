@@ -15,44 +15,56 @@ a read-only build with a sanitized copy of the real dataset (see
 > public Web API (for enrichment only). "Spotify" and the Spotify logo are
 > trademarks of Spotify AB.
 
-![sonic-stats — the Rankings view](docs/screenshots/app-ui.png)
+![sonic-stats — Favorite bands by year](docs/screenshots/app-ui.png)
 
 A grouped sidebar navigates the views; shared filters (year, plays-vs-minutes,
 kid-stream removal) apply across them; and the whole thing runs on *years* of
-your history, not just the last twelve months.
+your history, not just the last twelve months. Charts and layout follow
+Streamlit's own light/dark theme setting automatically.
 
 ## Features
 
-- **🗓️ Wrapped** — an all-time snapshot (lifetime totals plus records: busiest
-  day, longest streak, all-time #1s) and a Wrapped-style recap for any window.
-- **🏆 Annual favorite bands** — your top artists for every year side by side,
-  newest first, ranked by play count or minutes.
+- **✨ Wrapped Story** — an all-time snapshot (lifetime totals plus records:
+  busiest day, longest streak, all-time #1s), a Wrapped-style recap for any
+  window, and a swipeable "year in review" story-card carousel you can pop
+  open and download as a standalone HTML file to share.
+- **🏆 Favorite bands by year** — your top artists for every year side by
+  side, newest first, ranked by play count or minutes.
 - **🎸 Artists / 🎵 Tracks / 💿 Albums / 🎼 Genres** — all-time and per-year
-  tops, by plays or minutes; Genres also groups the hundreds of Spotify
-  micro-genres into broad families in a treemap.
+  tops, by plays or minutes. Genres also groups the hundreds of Spotify
+  micro-genres into broad families (a treemap and a share-of-listening pie
+  chart), plus a top-bands-by-genre table.
 - **📅 Decades** — listening by release decade, plus top-10 bands and top-10
-  songs for every decade back to the 1960s.
-- **🎤 Groups of bands dude** — single-artist deep-dives (rank among your
+  songs for every decade back to the 1960s, with a marker for roughly when
+  you started using Spotify (release-decade data reflects the streamed
+  edition's metadata, so back-catalog decades are more exposed to a
+  reissue/remaster masking the music's true original release).
+- **🎤 Groups of Groups dude** — single-artist deep-dives (rank among your
   artists, peak year, listening clock) and saveable **groups** of bands with
-  combined summaries.
-- **🔥 Binges** — songs and bands that hit hard for a week or two then faded,
-  plus a **Concert warm-up** table for the spike-then-crash pattern of hyping
-  up for a show.
+  combined summaries; opens on an overview of the groups you've already made.
+- **🔥 Binges and Concerts** — songs and bands that hit hard for a week or two
+  then faded, plus a tunable **Concert warm-up** detector for the
+  spike-then-crash pattern of hyping up for a show (build-up window,
+  elevation vs. your normal listening, cooldown window, and an optional
+  re-ranking signal for a late-night "drove home from the show" listening
+  cluster), with a way to flag false positives.
 - **🕐 Patterns** — an hour-of-day × day-of-week listening heatmap.
 - **🔍 Explore / 📤 Export** — full-text search of the raw play log, and CSV exports.
 - **🚫 Artist filters** — drop shared-account streams (e.g. a kid's listening)
   per artist, with year/month (`2019-06`) resolution or a keep-% split; toggle
   live from the sidebar.
 - **🔄 Stay current** — one-click **Sync now** in the sidebar (plus an optional
-  hourly background job) pulls recent plays on top of your export.
+  hourly background job) pulls recent plays on top of your export, with a
+  warning if a sync hits Spotify's 50-play API limit and older plays may
+  have been missed.
 
 ## Screenshots
 
-**🗓️ Wrapped** — your all-time totals and records, plus a windowed recap:
+**✨ Wrapped Story** — your all-time totals and records, plus a windowed recap:
 
-![Wrapped tab](docs/screenshots/guide/wrapped.png)
+![Wrapped Story tab](docs/screenshots/guide/wrapped.png)
 
-**🎤 Bands** — bundle artists into groups and summarize them together:
+**🎤 Groups of Groups dude** — bundle artists into groups and summarize them together:
 
 ![Bands groups](docs/screenshots/guide/bands_groups.png)
 
@@ -224,12 +236,125 @@ src/
   enrich_data.py        # track + artist metadata enrichment (Spotify API)
   process_data.py       # DataFrame build, aggregations, exclusions, groups
   charts.py             # Plotly figure factories
+  story.py              # Self-contained HTML for the Wrapped Story carousel
 docs/
   USER_GUIDE.md         # full walkthrough of the dashboard
   HOSTED_USER_GUIDE.md  # draft design for a hosted, bring-your-own-history mode
   screenshots/          # README + guide images (committed)
 data/                   # local data (gitignored, except data/demo/plays.parquet)
 ```
+
+## Architecture & the Spotify API (for developers)
+
+This section is for anyone extending the code, not just running it. It
+covers how the pieces fit together, exactly how the Spotify API is used, and
+how authentication works — the "Data retrieval & storage" section below
+covers *where files live*; this one covers *how the system is built*.
+
+### The pipeline, in three phases
+
+```
+Spotify GDPR export ──┐
+ (Streaming_History_   │
+  Audio_*.json)        ▼
+                 run_pipeline.py --bootstrap
+                        │
+                        │  1. load_gdpr_export()      (src/fetch_data.py)
+                        │  2. enrich_tracks/artists()  (src/enrich_data.py) ──▶ Spotify Web API
+                        │  3. build_plays_df()         (src/process_data.py)
+                        ▼
+              data/processed/plays.parquet   ◀── the ONE artifact the UI reads
+                        ▲
+                        │  run_pipeline.py --sync (ongoing, incremental)
+                        │  fetch_recently_played()     (src/fetch_data.py) ──▶ Spotify Web API
+                        │
+                 app.py (Streamlit) ── reads plays.parquet, never calls
+                                        Spotify directly at view time
+```
+
+- **Bootstrap** (`--bootstrap`, once): reads every raw export file, enriches
+  each unique track/artist via the API (see below), and writes the merged
+  `plays.parquet`.
+- **Enrichment** (`src/enrich_data.py`): a caching layer in front of the API —
+  `data/enriched/track_metadata.json` / `artist_metadata.json` are written
+  once and reused forever unless you pass `--force`, so re-running the
+  pipeline never re-fetches a track or artist it already has.
+- **Sync** (`--sync`, ongoing; also the sidebar's **Sync now** button):
+  fetches only what's happened since the last run and appends it —
+  see [Keeping your data current](#keeping-your-data-current).
+- **The dashboard** (`app.py`) is a pure *reader*. It never talks to Spotify
+  at request time — it loads `plays.parquet` (cached in-memory by
+  `st.cache_data`, keyed on the file's mtime) and does all filtering/
+  aggregation locally in `src/process_data.py`. This is why the app itself
+  needs no API credentials to run in demo mode — only the pipeline scripts
+  that build/refresh the data do.
+
+### How this app uses the Spotify API
+
+Three distinct endpoints, for three distinct jobs — the app deliberately
+does **not** use the API as its source of listening history:
+
+| Endpoint | Used for | Auth | Called from |
+|---|---|---|---|
+| *(none — GDPR export)* | Full play history (the backbone) | n/a | `load_gdpr_export()` |
+| `GET /tracks`, `GET /artists` (batches of 50) | Enrichment: genre, release date, duration, album | Client Credentials | `src/enrich_data.py` |
+| `GET /me/player/recently-played` | Incremental sync since the last run | Authorization Code (user) | `src/fetch_data.py` |
+
+The reason the export does the historical heavy lifting: Spotify's API has
+**no endpoint that returns your full listening history** — `recently-played`
+caps at the last 50 plays, full stop, regardless of how far back you ask.
+The GDPR "Extended streaming history" export is the only complete source,
+which is also why it's a one-time manual download rather than something the
+app can fetch for you.
+
+Enrichment is batched (`API_BATCH_SIZE = 50` in `src/config.py`, matching
+Spotify's own per-request cap on `/tracks` and `/artists`) and cached to disk
+indefinitely — a multi-year archive still only ever fetches each unique
+track/artist *once*.
+
+### Authentication
+
+Two separate OAuth flows are used, deliberately kept apart because they
+authorize very different things:
+
+**1. Client Credentials (app-only, no user involved) — for enrichment.**
+`get_client_credentials_token()` in `src/fetch_data.py` exchanges just your
+app's `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` (from `.local.env`, never
+committed) for a token via a `POST` to Spotify's token endpoint with
+`grant_type=client_credentials`. There's no browser step and no user login —
+this token can only read public catalog data (`/tracks`, `/artists`), never
+anything user-specific, which is exactly the access enrichment needs.
+
+**2. Authorization Code (one-time user login) — for sync.**
+`/me/player/recently-played` is a user-specific endpoint and needs a token
+authorized *by you*, requesting scopes `user-read-recently-played
+user-top-read` (`config.SCOPES`). The one-time setup is `python -m
+src.setup_tokens`, which:
+1. Builds an authorization URL and has you open it in a browser to approve
+   the app.
+2. Spotify redirects to a loopback URL (`SPOTIFY_REDIRECT_URI`, default
+   `http://127.0.0.1:8888/callback`) that's *expected* to fail to load —
+   there's no server listening there, you just copy the `code` param (or the
+   whole URL) out of the address bar.
+3. That code is exchanged for an access + refresh token pair, saved to
+   `data/spotify_tokens.json` (gitignored — never committed).
+
+After that one-time step, `get_access_token()` handles refresh automatically
+on every subsequent pipeline/sync run: if the stored token is within 5
+minutes of expiring, it's refreshed via the `refresh_token` grant and
+re-saved. One Spotify-specific wrinkle worth knowing if you're debugging
+this: a refresh response doesn't always include a new `refresh_token`, so
+the code merges the response into the existing stored tokens rather than
+replacing them outright — otherwise a refresh could silently drop the
+`refresh_token` you need for the *next* refresh.
+
+**Why this matters for hosting:** the loopback redirect only works when
+`setup_tokens` runs on the same machine as the browser completing the OAuth
+approval. A hosted/cloud-only deploy can't complete this handshake unless you
+register a publicly reachable redirect URI in your Spotify app and adapt
+`setup_tokens.py` accordingly — see
+[Running in a browser](#running-in-a-browser--and-what-the-local-first-design-means-for-hosting)
+below for the fuller implication of that constraint.
 
 ## Data retrieval & storage
 
