@@ -224,7 +224,12 @@ def _page_filters(df_all, with_metric=True):
     False."""
     years = sorted(df_all['year'].dropna().unique().tolist(), reverse=True)
     range_opts = _RANGE_PRESETS + [str(y) for y in years]
-    range_cur = st.session_state.get('date_range', range_opts[0])
+    # Default to the current year (when present) rather than "All time" —
+    # this is a single shared session_state key, so it applies uniformly
+    # across every page that uses this control.
+    current_year = str(datetime.now().year)
+    default_range = current_year if current_year in range_opts else range_opts[0]
+    range_cur = st.session_state.get('date_range', default_range)
     range_idx = range_opts.index(range_cur) if range_cur in range_opts else 0
     if with_metric:
         col1, col2 = st.columns([2, 1])
