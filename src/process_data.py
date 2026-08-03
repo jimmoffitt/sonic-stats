@@ -296,10 +296,16 @@ def build_plays_df(plays, track_cache, artist_cache, settings=None):
     df['decade'] = (df['release_year'] // 10 * 10).astype('Int64')
     df['album_id'] = df['track_uri'].map(
         lambda u: (track_cache.get(u) or {}).get('album_id'))
+    df['album_image_url'] = df['track_uri'].map(
+        lambda u: (track_cache.get(u) or {}).get('album_image_url'))
 
-    # 4. Artist enrichment: genres (union across the track's artists).
+    # 4. Artist enrichment: genres (union across the track's artists), image
+    # (the *primary* artist's — unlike genres, an image can't be usefully
+    # unioned across multiple artists on a track).
     df['genres'] = df['track_uri'].map(
         lambda u: _genres_for_track(track_cache.get(u), artist_cache))
+    df['artist_image_url'] = df['track_uri'].map(
+        lambda u: _primary_artist_image(track_cache.get(u), artist_cache))
 
     # 5. Derived time columns (local).
     df['year'] = df['ts_local'].dt.year
@@ -341,6 +347,16 @@ def _genres_for_track(track_meta, artist_cache):
                 seen.add(g)
                 genres.append(g)
     return genres
+
+
+def _primary_artist_image(track_meta, artist_cache):
+    """Image URL for a track's *primary* (first-listed) artist."""
+    if not track_meta:
+        return None
+    artist_ids = track_meta.get('artist_ids') or []
+    if not artist_ids:
+        return None
+    return (artist_cache.get(artist_ids[0]) or {}).get('image_url')
 
 
 # --- parquet I/O ---
@@ -923,8 +939,13 @@ def artist_facts(df, artist, metric='plays'):
     rank_row = ranks[ranks['artist_name'] == artist]
     by_year = plays_by_year(sub)
     peak = by_year.loc[by_year['plays'].idxmax()] if not by_year.empty else None
+    # Tolerate a plays.parquet built before this column existed — it's only
+    # added on the next --enrich/--bootstrap rebuild, not retroactively.
+    images = (sub['artist_image_url'].dropna() if 'artist_image_url' in sub.columns
+             else pd.Series(dtype=object))
     return {
         'artist': artist,
+        'image_url': images.iloc[0] if not images.empty else None,
         'plays': int(len(sub)),
         'hours': round(sub['minutes_played'].sum() / 60, 1),
         'rank': int(rank_row['rank'].iloc[0]) if not rank_row.empty else None,

@@ -38,6 +38,9 @@ FIELD_WHITELIST = [
     'skipped', 'full_listen', 'duration_ms',
     'release_year', 'decade', 'genres', 'country',
     'year', 'month', 'hour', 'day_of_week',
+    # Spotify CDN image URLs — public artwork, same as anyone sees on
+    # Spotify itself, no play-level/personal data in the URL.
+    'album_image_url', 'artist_image_url',
 ]
 
 # Real paths, deliberately independent of config's DEMO_MODE redirection so
