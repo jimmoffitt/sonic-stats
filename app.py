@@ -478,8 +478,7 @@ def main():
     def _settings(): render_settings(ctx['df'])
 
     analytics = [
-        st.Page(_story,    title="Wrapped Story", icon="✨", url_path="wrapped", default=True),
-        st.Page(_artists,  title="Artists",  icon="🎸", url_path="artists"),
+        st.Page(_artists,  title="Artists",  icon="🎸", url_path="artists", default=True),
         st.Page(_tracks,   title="Tracks",   icon="🎵", url_path="tracks"),
         st.Page(_albums,   title="Albums",   icon="💿", url_path="albums"),
         st.Page(_rankings, title="Favorite bands by year", icon="🏆", url_path="rankings"),
@@ -488,6 +487,9 @@ def main():
         st.Page(_decades,  title="Decades",  icon="📅", url_path="decades"),
         st.Page(_genres,   title="Genres",   icon="🎼", url_path="genres"),
         st.Page(_bands,    title="Groups of Groups dude", icon="🎤", url_path="bands"),
+        # Still iterating on this one — parked at the bottom rather than
+        # being the first thing anyone sees.
+        st.Page(_story,    title="Wrapped Story", icon="✨", url_path="wrapped"),
     ]
     tools = [
         st.Page(_artist_filters, title="Artist filters", icon="🚫",
@@ -905,10 +907,15 @@ def render_wrapped_story(df, alltime, story_loader):
         return
     st.dataframe(_alltime_stats_table(alltime), width='stretch', hide_index=True)
 
-    # "Last 30 days" first so it stays the default (index 0) — Wrapped's
-    # traditional default, unlike the sidebar filter which defaults to all-time.
-    window = st.selectbox("Recap window", ["Last 30 days", "Last 7 days", "This month", "All time"] +
-                          [str(y) for y in sorted(df['year'].dropna().unique(), reverse=True)])
+    # "Last 30 days" stays first in the list (unlike the sidebar filter,
+    # which defaults to all-time) but the *default selection* is the
+    # current calendar year when it's present, so this opens on "my year
+    # so far" rather than just the last month.
+    window_options = (["Last 30 days", "Last 7 days", "This month", "All time"] +
+                      [str(y) for y in sorted(df['year'].dropna().unique(), reverse=True)])
+    current_year = str(datetime.now().year)
+    default_idx = window_options.index(current_year) if current_year in window_options else 0
+    window = st.selectbox("Recap window", window_options, index=default_idx)
     recap = _window_recap_table(df, window)
     if recap is None:
         st.info("No plays in this window.")
