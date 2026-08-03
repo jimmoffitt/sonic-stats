@@ -1186,11 +1186,15 @@ def render_single_band(df):
     sub = df[df['artist_name'] == artist]
     years = (f['last_played'] - f['first_played']).days / 365.25
 
-    c = st.columns(4)
-    c[0].metric("Plays", f"{f['plays']:,}")
-    c[1].metric("Hours", f"{f['hours']:,.0f}")
-    c[2].metric("Rank", f"#{f['rank']} / {f['total_artists']:,}")
-    c[3].metric("Peak year", f"{f['peak_year']} ({f['peak_year_plays']:,})")
+    img_col, metrics_col = st.columns([1, 5], vertical_alignment="center")
+    if f['image_url']:
+        img_col.image(f['image_url'], width=120)
+    with metrics_col:
+        c = st.columns(4)
+        c[0].metric("Plays", f"{f['plays']:,}")
+        c[1].metric("Hours", f"{f['hours']:,.0f}")
+        c[2].metric("Rank", f"#{f['rank']} / {f['total_artists']:,}")
+        c[3].metric("Peak year", f"{f['peak_year']} ({f['peak_year_plays']:,})")
     st.caption(
         f"In rotation {f['first_played'].date()} → {f['last_played'].date()} "
         f"(~{years:.1f} yrs)  ·  full-listen {f['full_listen_rate']*100:.0f}%, "

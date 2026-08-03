@@ -51,6 +51,19 @@ def _uri_to_id(uri):
     return uri.rsplit(':', 1)[-1] if uri else None
 
 
+def _pick_image(images):
+    """Spotify returns an artist's/album's images largest-first (typically
+    640/300/64px). Prefer the ~300px one — big enough for a real display,
+    small enough not to bloat the cache or slow the page down — falling
+    back to whatever's available. None if there are no images at all."""
+    if not images:
+        return None
+    for img in images:
+        if img.get('height') and 200 <= img['height'] <= 400:
+            return img.get('url')
+    return images[min(1, len(images) - 1)].get('url')
+
+
 def _get_with_retry(url, access_token, params, max_retries=5):
     """
     GET with Spotify 429 rate-limit handling. On 429, honor the Retry-After
@@ -77,8 +90,13 @@ def enrich_tracks(plays, access_token, force=False):
     Fetch + cache metadata for every unique music track URI in `plays`.
 
     Cached per track URI: duration_ms, release_date, album_name, album_id,
-    popularity, artist_ids, artist_names. The artist_ids drive artist
-    enrichment (genres live on the artist, not the track).
+    album_image_url, popularity, artist_ids, artist_names. The artist_ids
+    drive artist enrichment (genres live on the artist, not the track).
+
+    A cache entry missing 'album_image_url' (e.g. cached before that field
+    existed) is treated the same as a cache miss and re-fetched — a cheap,
+    automatic backfill on the next non-force run, rather than requiring
+    --force and re-fetching everything else that's already cached.
     """
     cache = {} if force else _load_cache(config.TRACK_METADATA_FILE)
 
@@ -87,7 +105,8 @@ def enrich_tracks(plays, access_token, force=False):
         p['spotify_track_uri'] for p in plays
         if (p.get('spotify_track_uri') or '').startswith(config.TRACK_URI_PREFIX)
     }
-    missing = sorted(u for u in uris if u not in cache)
+    missing = sorted(u for u in uris
+                     if u not in cache or 'album_image_url' not in cache[u])
     if not missing:
         print(f"✅ Track metadata: {len(cache)} cached, nothing to fetch.")
         return cache
@@ -107,6 +126,7 @@ def enrich_tracks(plays, access_token, force=False):
                 'release_date': album.get('release_date'),
                 'album_name': album.get('name'),
                 'album_id': album.get('id'),
+                'album_image_url': _pick_image(album.get('images')),
                 'popularity': track.get('popularity'),
                 'artist_ids': [a['id'] for a in track.get('artists', [])],
                 'artist_names': [a['name'] for a in track.get('artists', [])],
@@ -122,12 +142,19 @@ def enrich_tracks(plays, access_token, force=False):
 def enrich_artists(track_cache, access_token, force=False):
     """
     Fetch + cache metadata for every unique artist ID referenced by the track
-    cache. Cached per artist ID: name, genres, popularity, followers, uri.
+    cache. Cached per artist ID: name, genres, popularity, followers, uri,
+    image_url.
+
+    Same automatic-backfill rationale as enrich_tracks: a cache entry
+    missing 'image_url' is treated as a cache miss, so existing users get
+    images filled in on their next regular sync/enrich run rather than
+    needing --force.
     """
     cache = {} if force else _load_cache(config.ARTIST_METADATA_FILE)
 
     artist_ids = {aid for t in track_cache.values() for aid in t.get('artist_ids', [])}
-    missing = sorted(a for a in artist_ids if a not in cache)
+    missing = sorted(a for a in artist_ids
+                     if a not in cache or 'image_url' not in cache[a])
     if not missing:
         print(f"✅ Artist metadata: {len(cache)} cached, nothing to fetch.")
         return cache
@@ -147,6 +174,7 @@ def enrich_artists(track_cache, access_token, force=False):
                 'popularity': artist.get('popularity'),
                 'followers': artist.get('followers', {}).get('total'),
                 'uri': artist.get('uri'),
+                'image_url': _pick_image(artist.get('images')),
             }
 
     _save_cache(config.ARTIST_METADATA_FILE, cache)
