@@ -11,6 +11,7 @@ src/charts.py. Run the pipeline first to build the parquet:
 # Silence urllib3's NotOpenSSLWarning: the system Python 3.9 links against
 # LibreSSL 2.8.3, which urllib3 v2 doesn't certify. Harmless for our use.
 # Match by message — importing the warning class would trigger it first.
+import html
 import warnings
 
 warnings.filterwarnings("ignore", message=r"urllib3 v2 only supports OpenSSL")
@@ -638,11 +639,50 @@ def main():
 
 # --- Tab renderers ---
 
+def render_image_banner(images):
+    """A row of up to 10 thumbnails with captions underneath — the shared
+    piece behind the Artists/Tracks/Albums banners. `images` is a list of
+    (label, url) pairs, already filtered to non-null urls by the
+    top_*_images() functions that build it. Silently renders nothing if
+    there's nothing to show (e.g. a brand-new archive with no enrichment
+    yet), rather than an empty row of blank tiles.
+
+    Raw HTML/CSS grid rather than st.columns + st.image + st.caption: a
+    character-count truncation on the caption (tried first) can't reliably
+    prevent wrapping since rendered text width depends on the actual
+    characters, not just their count, and Spotify's artist/album art isn't
+    consistently square — a portrait photo mixed into a row of square ones
+    throws the whole row's height, and therefore caption baseline, out of
+    alignment. CSS handles both: text-overflow:ellipsis truncates however
+    long the string actually renders, and object-fit:cover crops every
+    tile to the same square regardless of its source aspect ratio."""
+    if not images:
+        return
+    dark = st.context.theme.type == 'dark'
+    caption_color = '#a3a8b8' if dark else '#6b7078'
+    tiles = "".join(
+        f'<div style="min-width:0;">'
+        f'<img src="{html.escape(url)}" title="{html.escape(label)}" '
+        f'style="width:100%; aspect-ratio:1; object-fit:cover; border-radius:6px; '
+        f'display:block;">'
+        f'<div style="font-size:12px; color:{caption_color}; margin-top:4px; '
+        f'white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" '
+        f'title="{html.escape(label)}">{html.escape(label)}</div>'
+        f'</div>'
+        for label, url in images
+    )
+    st.markdown(
+        f'<div style="display:grid; grid-template-columns:repeat({len(images)}, 1fr); '
+        f'gap:12px;">{tiles}</div>',
+        unsafe_allow_html=True)
+
+
 def render_artists(df):
     range_sel, metric = _page_filters(df)
     value_col, value_label = metric_columns(metric)
     view = _apply_range(df, range_sel)
     st.subheader("Top artists")
+    render_image_banner(proc.top_artist_images(view, n=10, metric=value_col))
     top = proc.top_artists(view, n=25, metric=value_col)
     st.plotly_chart(charts.ranked_bar(top, 'artist_name', value_col,
                                       f"Top artists by {value_label.lower()}"),
@@ -688,13 +728,15 @@ def render_tracks(df):
     value_col, value_label = metric_columns(metric)
     view = _apply_range(df, range_sel)
     st.subheader("Top tracks")
+    render_image_banner(proc.top_track_images(view, n=10, metric=value_col))
     top = proc.top_tracks(view, n=25, metric=value_col)
     label = top['track_name'] + " — " + top['artist_name']
     chart_df = top.assign(label=label)
     st.plotly_chart(charts.ranked_bar(chart_df, 'label', value_col,
                                       f"Top tracks by {value_label.lower()}"),
                     use_container_width=True)
-    st.dataframe(top, width='stretch', hide_index=True)
+    st.dataframe(top[['track_name', 'artist_name', 'plays', 'minutes']],
+                width='stretch', hide_index=True)
 
 
 def render_albums(df):
@@ -702,6 +744,7 @@ def render_albums(df):
     value_col, value_label = metric_columns(metric)
     view = _apply_range(df, range_sel)
     st.subheader("Top albums")
+    render_image_banner(proc.top_album_images(view, n=10, metric=value_col))
     top = proc.top_albums(view, n=25, metric=value_col)
     label = top['artist_name'].fillna('Unknown') + " — " + top['album_name'].fillna('Unknown')
     chart_df = top.assign(label=label)

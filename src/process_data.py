@@ -405,8 +405,11 @@ def _top_by_key_with_mode_label(df, key_cols, label_col, n, metric):
                  .reset_index())
     out = agg.merge(winners, on=key_cols)
     out['minutes'] = out['minutes'].round(1)
+    # key_cols[0] (track_uri / album_id) is kept alongside the display label
+    # — needed to look up e.g. album art for a top_tracks() row without a
+    # second, separately-keyed query.
     return out.sort_values(metric, ascending=False).head(n)[
-        [label_col, 'artist_name', 'plays', 'minutes']]
+        [key_cols[0], label_col, 'artist_name', 'plays', 'minutes']]
 
 
 def top_tracks(df, n=20, metric='plays'):
@@ -426,6 +429,49 @@ def top_albums(df, n=20, metric='plays'):
     return _top_by_key_with_mode_label(
         df.dropna(subset=['album_id']), ['album_id', 'artist_name'],
         'album_name', n, metric)
+
+
+def _first_image_by_key(df, key_col, image_col):
+    """A {key: first non-null image URL} lookup — the shared piece behind
+    all three top_*_images() functions below. Empty (not a KeyError) for a
+    plays.parquet built before image_col existed — same backward-
+    compatibility tolerance as artist_facts()'s image_url."""
+    if image_col not in df.columns:
+        return pd.Series(dtype=object)
+    return (df.dropna(subset=[image_col])
+              .drop_duplicates(subset=[key_col])
+              .set_index(key_col)[image_col])
+
+
+def top_artist_images(df, n=10, metric='plays'):
+    """(label, image_url) pairs for the top-N artists — the image banner
+    atop the Artists tab. Artists with no captured image are skipped
+    rather than shown with a blank tile, so the banner is always full."""
+    top = top_artists(df, n=n * 2, metric=metric)  # headroom for skips
+    lookup = _first_image_by_key(df, 'artist_name', 'artist_image_url')
+    out = [(row['artist_name'], lookup.get(row['artist_name']))
+           for _, row in top.iterrows()]
+    return [(label, url) for label, url in out if pd.notna(url)][:n]
+
+
+def top_track_images(df, n=10, metric='plays'):
+    """(label, image_url) pairs for the top-N tracks' *album art* (a track
+    has no image of its own) — the banner atop the Tracks tab."""
+    top = top_tracks(df, n=n * 2, metric=metric)
+    lookup = _first_image_by_key(df, 'track_uri', 'album_image_url')
+    out = [(f"{row['track_name']} — {row['artist_name']}", lookup.get(row['track_uri']))
+           for _, row in top.iterrows()]
+    return [(label, url) for label, url in out if pd.notna(url)][:n]
+
+
+def top_album_images(df, n=10, metric='plays'):
+    """(label, image_url) pairs for the top-N albums — the banner atop the
+    Albums tab."""
+    top = top_albums(df, n=n * 2, metric=metric)
+    lookup = _first_image_by_key(df, 'album_id', 'album_image_url')
+    out = [(f"{row['album_name']} — {row['artist_name']}", lookup.get(row['album_id']))
+           for _, row in top.iterrows()]
+    return [(label, url) for label, url in out if pd.notna(url)][:n]
 
 
 def top_genres(df, n=20, metric='plays'):
