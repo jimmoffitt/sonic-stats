@@ -480,14 +480,25 @@ def top_genres(df, n=20, metric='plays'):
     return _agg_counts(exploded, 'genres', metric).head(n)
 
 
-def top_artists_by_genre(df, genre, n=10, metric='plays'):
-    """Top-N artists tagged with `genre` (an exact match against the
-    exploded micro-genre tags, e.g. 'indie rock') — the Genres tab's
-    per-genre band leaderboard. `genre=None` returns top artists overall
-    (the "All" option), same ranking as top_artists() but with a rank
-    column added for direct table display."""
-    exploded = df.explode('genres').dropna(subset=['genres'])
-    sub = exploded[exploded['genres'] == genre] if genre else df
+def top_artists_by_genre(df, genre, n=10, metric='plays', is_macro=False):
+    """Top-N artists tagged with `genre` — the Genres tab's per-genre band
+    leaderboard. `genre=None` returns top artists overall (the "All"
+    option), same ranking as top_artists() but with a rank column added
+    for direct table display.
+
+    `is_macro=False` (default) matches `genre` exactly against a raw
+    micro-genre tag (e.g. 'indie rock'). `is_macro=True` matches it
+    against a genre *family* (e.g. 'Rock / Indie') via the same
+    keyword classification the treemap/pie chart use — a band counts if
+    any of its tags fall in that family, not just one specific tag."""
+    if not genre:
+        sub = df
+    elif is_macro:
+        exploded = _explode_with_macro_genre(df)
+        sub = exploded[exploded['macro_genre'] == genre]
+    else:
+        exploded = df.explode('genres').dropna(subset=['genres'])
+        sub = exploded[exploded['genres'] == genre]
     out = _agg_counts(sub, 'artist_name', metric).head(n).reset_index(drop=True)
     out.insert(0, 'rank', out.index + 1)
     return out

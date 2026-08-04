@@ -788,12 +788,18 @@ def render_genres(df):
 
     st.divider()
     st.subheader("Top bands by genre")
+    genre_families = proc.GENRE_MACRO_COLOR_ORDER + ["Other"]
     top10_genres = proc.top_genres(view, n=10, metric=value_col)
-    genre_choice = st.selectbox("Genre", ["All"] + top10_genres['genres'].tolist(),
-                                key="genre_band_filter")
+    genre_choice = st.selectbox(
+        "Genre", ["All"] + genre_families + top10_genres['genres'].tolist(),
+        key="genre_band_filter",
+        help="Pick a broad genre family (e.g. 'Rock / Indie') or one of "
+             "your top 10 specific genres (e.g. 'indie rock').")
     band_n = st.slider("Bands to show", 5, 25, 10, key="genre_band_n")
     genre_filter = None if genre_choice == "All" else genre_choice
-    top_bands = proc.top_artists_by_genre(view, genre_filter, n=band_n, metric=value_col)
+    is_macro = genre_choice in genre_families
+    top_bands = proc.top_artists_by_genre(view, genre_filter, n=band_n,
+                                          metric=value_col, is_macro=is_macro)
     if top_bands.empty:
         st.info("No bands found for this genre in the selected range.")
     else:
