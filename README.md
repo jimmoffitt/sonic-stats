@@ -187,8 +187,8 @@ On **macOS**, a ready-made LaunchAgent is included — it runs an hourly sync vi
 `scripts/auto_sync.sh` and logs to `data/sync.log`:
 
 ```bash
-cp scripts/com.spotify-stats.sync.plist ~/Library/LaunchAgents/
-launchctl load ~/Library/LaunchAgents/com.spotify-stats.sync.plist
+cp scripts/com.sonic-stats.sync.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.sonic-stats.sync.plist
 # (edit the absolute paths in the plist / script to match your checkout first)
 ```
 
@@ -197,7 +197,7 @@ project path):
 
 ```bash
 # sync at 8am and 8pm daily; log output for troubleshooting
-0 8,20 * * * cd /path/to/spotify-stats && .venv/bin/python run_pipeline.py --sync >> data/sync.log 2>&1
+0 8,20 * * * cd /path/to/sonic-stats && .venv/bin/python run_pipeline.py --sync >> data/sync.log 2>&1
 ```
 
 Check `python run_pipeline.py --status` anytime to see the last sync time, total
@@ -466,7 +466,7 @@ to strip; the whitelist exists mainly so a future column added to
 `build_plays_df()` doesn't silently ride along without a deliberate decision.
 
 **Automatic demo mode.** `DEMO_MODE` in `src/config.py` turns on when
-`SPOTIFY_STATS_DEMO=1` is set, or automatically when the real processed
+`SONIC_STATS_DEMO=1` is set, or automatically when the real processed
 parquet is absent but the demo dataset is present — which is exactly the
 state of a fresh clone or a Streamlit Community Cloud deploy, since `data/`
 (other than `data/demo/`) is gitignored. In demo mode, `PLAYS_FILE`,

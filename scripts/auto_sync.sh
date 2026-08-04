@@ -1,13 +1,13 @@
 #!/bin/bash
 #
 # auto_sync.sh — run one incremental Spotify sync. Intended for the launchd
-# job (see scripts/com.spotify-stats.sync.plist), but safe to run by hand.
+# job (see scripts/com.sonic-stats.sync.plist), but safe to run by hand.
 #
 # Anchors the working directory at the project root because config.py loads
 # .local.env and resolves every data path relative to the CWD — launchd starts
 # jobs at "/", so without this cd the sync would not find its config or data.
 #
-PROJECT_DIR="/Users/jimmoffitt/projects/spotify-stats"
+PROJECT_DIR="/Users/jimmoffitt/projects/sonic-stats"
 PYTHON="$PROJECT_DIR/.venv/bin/python"
 LOG="$PROJECT_DIR/data/sync.log"
 

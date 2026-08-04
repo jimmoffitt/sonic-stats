@@ -44,7 +44,7 @@ FIELD_WHITELIST = [
 ]
 
 # Real paths, deliberately independent of config's DEMO_MODE redirection so
-# this script always reads the true files even if SPOTIFY_STATS_DEMO is set.
+# this script always reads the true files even if SONIC_STATS_DEMO is set.
 REAL_PLAYS_FILE = os.path.join('data', 'processed', 'plays.parquet')
 REAL_EXCLUSIONS_FILE = os.path.join('data', 'exclusions.json')
 DEMO_EXCLUSIONS_FILE = os.path.join('data', 'demo', 'exclusions.json')
