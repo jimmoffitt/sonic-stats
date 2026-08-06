@@ -39,7 +39,9 @@ Two cross-cutting features shape everything:
 - **Python 3.9+** and this repository.
 - Your **Spotify Extended Streaming History** export. Request it at
   [spotify.com/account/privacy](https://www.spotify.com/account/privacy) →
-  *Extended streaming history*. Spotify emails a `.zip` (it can take a few days).
+  *Extended streaming history*. Spotify emails a `.zip` — this can take up to
+  30 days, so it's worth starting first. New to this? See the step-by-step
+  [Getting your Spotify data](REQUEST_YOUR_DATA.md) walkthrough.
 - A **Spotify app** (free) at the
   [Developer Dashboard](https://developer.spotify.com/dashboard) for the Client
   ID/Secret — only needed for metadata enrichment and syncing.
