@@ -125,7 +125,7 @@
     "SG Lewis": true,
     "TRACE": true,
     "Jalen Santoy": true,
-    "Danrell x Sm\u00e5land": true,
+    "Danrell x Småland": true,
     "Mike Perry": true,
     "XY&O": true,
     "3LAU": true,
@@ -141,7 +141,7 @@
     "Yellow Claw": true,
     "Ember Island": true,
     "Coyote Kisses": true,
-    "Janelle Mon\u00e1e": true,
+    "Janelle Monáe": true,
     "SIAM": true,
     "MAX": true,
     "Amber Mark": true,
@@ -152,7 +152,7 @@
     "TOTEM": true,
     "Scott Helman": true,
     "Teresa Cristina": true,
-    "M\u00f8me": true,
+    "Møme": true,
     "Caroline Pennell": true,
     "H.E.R.": true,
     "Amber Run": true,
@@ -213,7 +213,7 @@
     "Nightly": true,
     "Sam Moss": true,
     "The Creation": true,
-    "T\u00fclpa": true,
+    "Tülpa": true,
     "RKCB": true,
     "Aquilo": true,
     "Emmit Fenn": true,
@@ -235,9 +235,9 @@
     "Felicity": true,
     "Gabrielle Aplin": true,
     "Niall Horan": true,
-    "S\u00e4len": true,
+    "Sälen": true,
     "Everclear": true,
-    "BR\u00c5VES": true,
+    "BRÅVES": true,
     "Palmistry": true,
     "Era Istrefi": true,
     "Lil Uzi Vert": true,
@@ -289,7 +289,7 @@
     "Lincoln Jesser": true,
     "The Joy Formidable": true,
     "Brandyn Burnette": true,
-    "L\u00e5psley": true,
+    "Låpsley": true,
     "SALES": true,
     "J.Views": true,
     "Seeb": true,
@@ -318,6 +318,12 @@
     "Adele": {
       "before": 2020,
       "keep": 0.25
+    },
+    "Austra": {
+      "keep": 0.5
+    },
+    "Mitski": {
+      "keep": 0.5
     }
   }
 }
