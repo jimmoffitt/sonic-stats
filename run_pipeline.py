@@ -29,6 +29,8 @@ import json
 import os
 from datetime import datetime, timezone
 
+import pandas as pd
+
 from src import config, enrich_data, fetch_data, process_data
 
 
@@ -124,7 +126,8 @@ def sync():
     token = fetch_data.get_access_token()
     after_ms = _read_last_sync().get('last_played_at_ms')
     items = fetch_data.fetch_recently_played(token, after_ts=after_ms)
-    records = fetch_data.recently_played_to_records(items)
+    now = datetime.now(timezone.utc)
+    records = fetch_data.recently_played_to_records(items, synced_at=now)
     print(f"recently-played: {len(items)} items -> {len(records)} music plays")
 
     # Dedupe new records against everything we already have (GDPR + synced),
@@ -155,7 +158,7 @@ def sync():
     new_last_ms = fetch_data.latest_played_at_ms(items)
     state = {'total_plays': len(df), 'last_new': added,
              'last_fetched': len(items), 'last_fetch_capped': capped,
-             'last_sync_at': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}
+             'last_sync_at': now.strftime('%Y-%m-%dT%H:%M:%SZ')}
     if new_last_ms is not None:
         state['last_played_at_ms'] = new_last_ms
     _write_last_sync(**state)
@@ -194,6 +197,26 @@ def status():
     else:
         print("  last sync            : never")
     print(f"  last new plays       : {state.get('last_new', 0)}")
+
+
+def sync_latency_df():
+    """
+    Latency between a play happening and a sync first observing it, one row
+    per synced play that carries a '_synced_at' tag (plays from the GDPR
+    export, or synced before this field existed, have none and are skipped).
+    Columns: played_at, synced_at, latency_minutes. Empty if no tagged plays
+    exist yet. Surfaces how far behind real-time Spotify's own
+    recently-played endpoint runs — see docs/USER_GUIDE.md.
+    """
+    rows = [{'played_at': p['ts'], 'synced_at': p['_synced_at']}
+            for p in _load_synced() if p.get('_synced_at')]
+    if not rows:
+        return pd.DataFrame(columns=['played_at', 'synced_at', 'latency_minutes'])
+    df = pd.DataFrame(rows)
+    df['played_at'] = pd.to_datetime(df['played_at'], utc=True)
+    df['synced_at'] = pd.to_datetime(df['synced_at'], utc=True)
+    df['latency_minutes'] = (df['synced_at'] - df['played_at']).dt.total_seconds() / 60
+    return df.sort_values('synced_at').reset_index(drop=True)
 
 
 def main():

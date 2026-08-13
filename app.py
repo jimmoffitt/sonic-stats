@@ -298,12 +298,19 @@ def _sidebar_data(df_all):
     if done:
         st.toast(done, icon="✅")
 
-    at = run_pipeline._read_last_sync().get('last_sync_at')
+    last_sync = run_pipeline._read_last_sync()
+    at = last_sync.get('last_sync_at')
     if at:
         hrs = (pd.Timestamp.now(tz='UTC') - pd.Timestamp(at)).total_seconds() / 3600
         when = ("just now" if hrs < 1 else
                 f"{hrs:.0f}h ago" if hrs < 48 else f"{hrs / 24:.0f}d ago")
-        st.caption(f"Synced {when}")
+        # "Synced" alone reads as "caught up" — it's really just "the sync
+        # process last ran". Spotify's own recently-played endpoint lags
+        # real-time listening, so a sync often legitimately finds nothing
+        # new; say so explicitly rather than leaving that gap to guesswork.
+        new = last_sync.get('last_new', 0)
+        detail = f"{new} new play{'s' if new != 1 else ''}" if new else "no new plays"
+        st.caption(f"Synced {when} ({detail})")
     else:
         st.caption("Never synced")
 
@@ -572,6 +579,11 @@ def main():
         st.markdown("**Analytics**")
         for p in analytics:
             st.page_link(p)
+            if p.url_path == "patterns":
+                # Everything below here is newer/less settled than the core
+                # Artists/Tracks/Albums/Rankings/Patterns views — flag it so
+                # a rough edge reads as "still evolving," not "broken."
+                st.caption("🧪 *experimental & evolving below*")
         st.divider()
         _sidebar_data(df_all)
         st.divider()
@@ -1443,6 +1455,24 @@ def render_settings(df):
     st.caption("Use the sidebar **🚫 Artist filters** to choose which artists "
                "to exclude." + ("" if config.DEMO_MODE else
                                  " Use **🔄 Sync now** to fetch recent plays."))
+
+    if not config.DEMO_MODE:
+        st.write("**Spotify sync latency**")
+        st.caption(
+            "How long a play takes to show up in Spotify's own "
+            "recently-played API after you actually listened to it — this "
+            "is Spotify-side lag, not a delay in this app's sync. Only "
+            "plays synced since this chart was added are included.")
+        latency_df = run_pipeline.sync_latency_df()
+        if latency_df.empty:
+            st.caption("Not enough data yet — this fills in as you sync.")
+        else:
+            median = latency_df['latency_minutes'].median()
+            p90 = latency_df['latency_minutes'].quantile(0.9)
+            st.caption(f"Median: {median:.0f} min · 90th percentile: {p90:.0f} min "
+                       f"· {len(latency_df):,} play(s) measured")
+            st.plotly_chart(charts.sync_latency_scatter(latency_df),
+                            width='stretch')
 
     st.write("**Preferences**")
     st.write(f"- Timezone: {settings.get('timezone') or 'system default'}")

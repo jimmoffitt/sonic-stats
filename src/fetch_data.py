@@ -150,14 +150,22 @@ def latest_played_at_ms(items):
     return best
 
 
-def recently_played_to_records(items):
+def recently_played_to_records(items, synced_at=None):
     """
     Convert /me/player/recently-played items into GDPR-shaped play records so
     they merge seamlessly with the export. The API does NOT report how long a
     track was listened to, so ms_played is approximated as the full track
     duration (assume full listen); records are tagged with "_source": "sync".
     Only music tracks are kept (podcast episodes are skipped).
+
+    synced_at: this fetch's timestamp (UTC datetime), stamped onto every
+    record as "_synced_at" so the gap between a play happening ('ts') and a
+    sync actually observing it can be measured later (see
+    run_pipeline.sync_latency_df) — Spotify's recently-played endpoint is
+    known to lag behind real-time listening. Defaults to now() if omitted.
     """
+    synced_at = synced_at or datetime.now(timezone.utc)
+    synced_at_str = synced_at.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
     records = []
     for it in items:
         track = it.get('track') or {}
@@ -177,6 +185,7 @@ def recently_played_to_records(items):
             'skipped': False,
             'reason_end': 'trackdone',
             '_source': 'sync',
+            '_synced_at': synced_at_str,
         })
     return records
 

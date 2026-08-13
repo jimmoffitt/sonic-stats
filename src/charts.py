@@ -101,6 +101,25 @@ def line_by_year(df, value_col='plays', title=None):
     return fig
 
 
+def sync_latency_scatter(df, title=None):
+    """Scatter of Spotify API latency (minutes between a play happening and
+    the sync that first observed it) over time — one point per synced play.
+    A single series, so no legend; the title names it."""
+    fig = go.Figure(go.Scatter(
+        x=df['synced_at'], y=df['latency_minutes'],
+        mode='markers',
+        marker=dict(size=8, color=SPOTIFY_GREEN_LIGHT, opacity=0.7),
+        hovertemplate='Synced %{x|%Y-%m-%d %H:%M}<br>Latency: %{y:.0f} min<extra></extra>',
+    ))
+    fig.update_layout(**_base_layout(
+        title=title,
+        xaxis=dict(title='Synced at', gridcolor=_grid_color()),
+        yaxis=dict(title='Latency (minutes)', gridcolor=_grid_color(), rangemode='tozero'),
+        height=340,
+    ))
+    return fig
+
+
 def decade_bar(df, value_col='plays', title=None, spotify_start_decade=None,
               spotify_start_year=None):
     """Vertical bar of plays (or minutes) per release decade. When
