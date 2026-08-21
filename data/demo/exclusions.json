@@ -3,17 +3,13 @@
     "Taylor Swift": {
       "before": 2019
     },
-    "Katy Perry": {
-      "before": 2019
-    },
+    "Katy Perry": true,
     "Ed Sheeran": {
       "before": 2019
     },
     "Meghan Trainor": true,
     "Shawn Mendes": true,
-    "Justin Bieber": {
-      "before": 2020
-    },
+    "Justin Bieber": true,
     "Selena Gomez": {
       "before": 2019
     },
