@@ -124,7 +124,7 @@ def metric_columns(metric):
 
 
 # "All time" first so it stays the default (index 0) selectbox choice.
-_RANGE_PRESETS = ["All time", "Last 24 hrs", "Last 7 days", "Last 30 days", "This month"]
+_RANGE_PRESETS = ["All time", "Last 24 hrs", "Last 3 days", "Last 7 days", "Last 30 days", "This month"]
 
 
 def _apply_range(df, sel):
@@ -140,6 +140,8 @@ def _apply_range(df, sel):
                   (df['ts_local'].dt.month == latest.month)]
     if sel == "Last 24 hrs":
         return df[df['ts_local'] >= latest - pd.Timedelta(hours=24)]
+    if sel == "Last 3 days":
+        return df[df['ts_local'] >= latest - pd.Timedelta(days=3)]
     if sel == "Last 7 days":
         return df[df['ts_local'] >= latest - pd.Timedelta(days=7)]
     if sel == "Last 30 days":
@@ -1024,7 +1026,7 @@ def render_wrapped_story(df, alltime, story_loader):
     # which defaults to all-time) but the *default selection* is the
     # current calendar year when it's present, so this opens on "my year
     # so far" rather than just the last month.
-    window_options = (["Last 30 days", "Last 7 days", "Last 24 hrs", "This month", "All time"] +
+    window_options = (["Last 30 days", "Last 7 days", "Last 3 days", "Last 24 hrs", "This month", "All time"] +
                       [str(y) for y in sorted(df['year'].dropna().unique(), reverse=True)])
     current_year = str(datetime.now().year)
     default_idx = window_options.index(current_year) if current_year in window_options else 0

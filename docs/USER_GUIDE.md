@@ -97,7 +97,8 @@ The left sidebar is mission control, split into four blocks:
 - **Analytics** — the nine analysis pages. Click to switch; your place sticks
   even after you press a button or edit a table.
 - **Filters** — shared controls for the Analytics pages:
-  - **Date range** — *All time*, *Last 7 days*, *Last 30 days*, *This month*,
+  - **Date range** — *All time*, *Last 24 hrs*, *Last 3 days*, *Last 7 days*,
+    *Last 30 days*, *This month*,
     or a single year.
   - **Rank by** — Plays or Minutes.
 - **Data** — how current your data is: the timestamp (UTC) and track/artist of
