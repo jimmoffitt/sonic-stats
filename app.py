@@ -34,13 +34,20 @@ st.set_page_config(page_title="sonic-stats", page_icon="🎵", layout="wide",
                    initial_sidebar_state="expanded")
 
 
-@st.cache_data
+# The two full-archive frames use cache_resource, not cache_data: cache_data
+# pickles/unpickles its return value on every hit, which for a ~200 MB,
+# 230k-row frame costs ~0.3s per call — twice per rerun, on every page switch.
+# cache_resource hands back the same object, so callers must treat these
+# frames as read-only (everything downstream derives new frames rather than
+# assigning into them). max_entries=1: only the current mtime is ever live,
+# so a sync doesn't leave the old 200 MB frame pinned in memory.
+@st.cache_resource(max_entries=1)
 def load_plays_cached(path, mtime):
     """Cached parquet load. `mtime` busts the cache when the file changes."""
     return proc.load_plays(path)
 
 
-@st.cache_data
+@st.cache_resource(max_entries=1)
 def filtered_plays_cached(path, mtime, excl_mtime):
     """Exclusion-filtered frame, cached so toggling tabs/filters is instant.
     `mtime`/`excl_mtime` bust the cache when the parquet or exclusions change."""
